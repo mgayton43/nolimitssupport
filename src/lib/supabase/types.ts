@@ -53,6 +53,19 @@ export interface Tag {
   created_at: string;
 }
 
+export interface AutoTagRule {
+  id: string;
+  name: string;
+  keywords: string[];
+  tag_id: string;
+  match_subject: boolean;
+  match_body: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  tag?: Tag;
+}
+
 export interface Ticket {
   id: string;
   ticket_number: number;
@@ -174,6 +187,11 @@ export interface Database {
         Row: TicketActivity;
         Insert: Omit<TicketActivity, 'id' | 'created_at'>;
         Update: never;
+      };
+      auto_tag_rules: {
+        Row: AutoTagRule;
+        Insert: Omit<AutoTagRule, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<AutoTagRule, 'id' | 'created_at'>>;
       };
     };
     Functions: {

@@ -201,6 +201,13 @@ export async function createTicket(input: CreateTicketInput) {
     return { error: 'Failed to create initial message' };
   }
 
+  // Apply auto-tagging rules based on subject and message body
+  await supabase.rpc('apply_auto_tags', {
+    p_ticket_id: ticket.id,
+    p_subject: parsed.data.subject,
+    p_body: parsed.data.message,
+  });
+
   revalidatePath('/tickets');
   return { ticketId: ticket.id };
 }

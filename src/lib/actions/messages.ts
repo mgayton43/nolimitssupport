@@ -45,6 +45,15 @@ export async function sendMessage(input: SendMessageInput) {
       .is('first_response_at', null);
   }
 
+  // Apply auto-tagging rules for non-internal messages
+  if (!parsed.data.isInternal) {
+    await supabase.rpc('apply_auto_tags', {
+      p_ticket_id: parsed.data.ticketId,
+      p_subject: null,
+      p_body: parsed.data.content,
+    });
+  }
+
   revalidatePath(`/tickets/${parsed.data.ticketId}`);
   return { messageId: message.id };
 }

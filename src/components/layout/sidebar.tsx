@@ -10,6 +10,7 @@ import {
   MessageSquare,
   UserCog,
   HelpCircle,
+  Wand2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
@@ -24,6 +25,7 @@ const settingsNavigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Canned Responses', href: '/settings/canned-responses', icon: MessageSquare },
   { name: 'Tags', href: '/settings/tags', icon: Tag, adminOnly: true },
+  { name: 'Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
   { name: 'Users', href: '/settings/users', icon: UserCog, adminOnly: true },
 ];
 
