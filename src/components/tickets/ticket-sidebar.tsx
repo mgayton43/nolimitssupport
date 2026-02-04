@@ -1,0 +1,273 @@
+'use client';
+
+import { useTransition } from 'react';
+import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { StatusBadge } from './status-badge';
+import { PriorityBadge } from './priority-badge';
+import { TicketActivityLog } from './ticket-activity-log';
+import {
+  updateTicketStatus,
+  updateTicketPriority,
+  assignTicket,
+  assignTicketToTeam,
+  addTagToTicket,
+  removeTagFromTicket,
+} from '@/lib/actions/tickets';
+import { getInitials, formatDate } from '@/lib/utils';
+import { User, Users, Tag as TagIcon, Clock, X } from 'lucide-react';
+import type {
+  Ticket,
+  Profile,
+  Team,
+  Tag,
+  TicketActivity,
+  TicketStatus,
+  TicketPriority,
+} from '@/lib/supabase/types';
+
+interface TicketSidebarProps {
+  ticket: Ticket & { tags: Tag[] };
+  agents: Profile[];
+  teams: Team[];
+  allTags: Tag[];
+  activities: (TicketActivity & { actor: Pick<Profile, 'full_name' | 'avatar_url'> | null })[];
+}
+
+export function TicketSidebar({
+  ticket,
+  agents,
+  teams,
+  allTags,
+  activities,
+}: TicketSidebarProps) {
+  const [isPending, startTransition] = useTransition();
+
+  const handleStatusChange = (status: TicketStatus) => {
+    startTransition(async () => {
+      await updateTicketStatus(ticket.id, status);
+    });
+  };
+
+  const handlePriorityChange = (priority: TicketPriority) => {
+    startTransition(async () => {
+      await updateTicketPriority(ticket.id, priority);
+    });
+  };
+
+  const handleAgentChange = (agentId: string) => {
+    startTransition(async () => {
+      await assignTicket(ticket.id, agentId === 'unassigned' ? null : agentId);
+    });
+  };
+
+  const handleTeamChange = (teamId: string) => {
+    startTransition(async () => {
+      await assignTicketToTeam(ticket.id, teamId === 'none' ? null : teamId);
+    });
+  };
+
+  const handleAddTag = (tagId: string) => {
+    if (tagId === 'none') return;
+    startTransition(async () => {
+      await addTagToTicket(ticket.id, tagId);
+    });
+  };
+
+  const handleRemoveTag = (tagId: string) => {
+    startTransition(async () => {
+      await removeTagFromTicket(ticket.id, tagId);
+    });
+  };
+
+  const availableTags = allTags.filter((t) => !ticket.tags.some((tt) => tt.id === t.id));
+
+  return (
+    <div className="p-4 space-y-6">
+      {/* Status */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Status
+        </label>
+        <Select value={ticket.status} onValueChange={handleStatusChange} disabled={isPending}>
+          <SelectTrigger>
+            <SelectValue>
+              <StatusBadge status={ticket.status} />
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="open">Open</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Priority */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          Priority
+        </label>
+        <Select value={ticket.priority} onValueChange={handlePriorityChange} disabled={isPending}>
+          <SelectTrigger>
+            <SelectValue>
+              <PriorityBadge priority={ticket.priority} />
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="low">Low</SelectItem>
+            <SelectItem value="medium">Medium</SelectItem>
+            <SelectItem value="high">High</SelectItem>
+            <SelectItem value="urgent">Urgent</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Assignee */}
+      <div className="space-y-2">
+        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          <User className="h-3.5 w-3.5" />
+          Assignee
+        </label>
+        <Select
+          value={ticket.assigned_agent_id || 'unassigned'}
+          onValueChange={handleAgentChange}
+          disabled={isPending}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Unassigned" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
+            {agents.map((agent) => (
+              <SelectItem key={agent.id} value={agent.id}>
+                <div className="flex items-center gap-2">
+                  <Avatar
+                    src={agent.avatar_url}
+                    fallback={getInitials(agent.full_name)}
+                    size="sm"
+                    className="h-5 w-5"
+                  />
+                  {agent.full_name || agent.email}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Team */}
+      <div className="space-y-2">
+        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          <Users className="h-3.5 w-3.5" />
+          Team
+        </label>
+        <Select
+          value={ticket.assigned_team_id || 'none'}
+          onValueChange={handleTeamChange}
+          disabled={isPending}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="No team" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No team</SelectItem>
+            {teams.map((team) => (
+              <SelectItem key={team.id} value={team.id}>
+                {team.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Tags */}
+      <div className="space-y-2">
+        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          <TagIcon className="h-3.5 w-3.5" />
+          Tags
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          {ticket.tags.map((tag) => (
+            <Badge
+              key={tag.id}
+              variant="secondary"
+              className="group cursor-pointer pr-1"
+              style={{ backgroundColor: `${tag.color}20`, borderColor: tag.color }}
+              onClick={() => handleRemoveTag(tag.id)}
+            >
+              {tag.name}
+              <X className="ml-1 h-3 w-3 opacity-50 group-hover:opacity-100" />
+            </Badge>
+          ))}
+        </div>
+        {availableTags.length > 0 && (
+          <Select value="none" onValueChange={handleAddTag} disabled={isPending}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Add tag..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none" disabled>
+                Add tag...
+              </SelectItem>
+              {availableTags.map((tag) => (
+                <SelectItem key={tag.id} value={tag.id}>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-3 w-3 rounded-full"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    {tag.name}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {/* Timestamps */}
+      <div className="space-y-2 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+          <Clock className="h-3.5 w-3.5" />
+          Timeline
+        </label>
+        <dl className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-zinc-500 dark:text-zinc-400">Created</dt>
+            <dd>{formatDate(ticket.created_at)}</dd>
+          </div>
+          {ticket.first_response_at && (
+            <div className="flex justify-between">
+              <dt className="text-zinc-500 dark:text-zinc-400">First response</dt>
+              <dd>{formatDate(ticket.first_response_at)}</dd>
+            </div>
+          )}
+          {ticket.resolved_at && (
+            <div className="flex justify-between">
+              <dt className="text-zinc-500 dark:text-zinc-400">Resolved</dt>
+              <dd>{formatDate(ticket.resolved_at)}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+
+      {/* Activity Log */}
+      {activities.length > 0 && (
+        <div className="space-y-2 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+          <label className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Activity
+          </label>
+          <TicketActivityLog activities={activities} />
+        </div>
+      )}
+    </div>
+  );
+}
