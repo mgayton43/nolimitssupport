@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { searchTickets } from '@/lib/actions/tickets';
-import type { TicketSearchResult } from '@/lib/supabase/types';
+import type { TicketSearchResult, Profile, Tag } from '@/lib/supabase/types';
 
 interface PageProps {
   searchParams: Promise<{
@@ -21,6 +21,8 @@ interface PageProps {
 
 async function TicketListContent({
   searchParams,
+  agents,
+  tags,
 }: {
   searchParams: {
     status?: string;
@@ -28,6 +30,8 @@ async function TicketListContent({
     assignee?: string;
     search?: string;
   };
+  agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
+  tags: Tag[];
 }) {
   // Use enhanced search when search term is present
   if (searchParams.search) {
@@ -46,7 +50,7 @@ async function TicketListContent({
       );
     }
 
-    return <TicketList tickets={result.tickets} />;
+    return <TicketList tickets={result.tickets} agents={agents} tags={tags} />;
   }
 
   // Standard query without search
@@ -90,7 +94,7 @@ async function TicketListContent({
     );
   }
 
-  return <TicketList tickets={tickets || []} />;
+  return <TicketList tickets={tickets || []} agents={agents} tags={tags} />;
 }
 
 function TicketListSkeleton() {
@@ -114,12 +118,18 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   const resolvedSearchParams = await searchParams;
   const supabase = await createClient();
 
-  // Fetch agents for filter dropdown
+  // Fetch agents for filter dropdown and bulk actions
   const { data: agents } = await supabase
     .from('profiles')
     .select('id, full_name, email')
     .in('role', ['admin', 'agent'])
     .eq('is_active', true);
+
+  // Fetch tags for bulk actions
+  const { data: tags } = await supabase
+    .from('tags')
+    .select('*')
+    .order('name');
 
   return (
     <div className="flex h-full flex-col">
@@ -138,7 +148,11 @@ export default async function TicketsPage({ searchParams }: PageProps) {
 
       <div className="flex-1 overflow-auto">
         <Suspense fallback={<TicketListSkeleton />}>
-          <TicketListContent searchParams={resolvedSearchParams} />
+          <TicketListContent
+            searchParams={resolvedSearchParams}
+            agents={agents || []}
+            tags={tags || []}
+          />
         </Suspense>
       </div>
     </div>

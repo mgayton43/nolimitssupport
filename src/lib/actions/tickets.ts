@@ -359,3 +359,93 @@ export async function searchTickets(
 
   return { tickets };
 }
+
+// Bulk Actions
+
+export async function bulkUpdateTicketStatus(
+  ticketIds: string[],
+  status: TicketStatus
+): Promise<{ success: true; count: number } | { error: string }> {
+  if (ticketIds.length === 0) {
+    return { error: 'No tickets selected' };
+  }
+
+  const supabase = await createClient();
+
+  const updateData: { status: TicketStatus; resolved_at?: string | null } = {
+    status,
+  };
+
+  if (status === 'closed') {
+    updateData.resolved_at = new Date().toISOString();
+  } else {
+    updateData.resolved_at = null;
+  }
+
+  const { error, count } = await supabase
+    .from('tickets')
+    .update(updateData)
+    .in('id', ticketIds);
+
+  if (error) {
+    console.error('Bulk status update error:', error);
+    return { error: 'Failed to update ticket status' };
+  }
+
+  revalidatePath('/tickets');
+  return { success: true, count: count || ticketIds.length };
+}
+
+export async function bulkAssignTickets(
+  ticketIds: string[],
+  agentId: string | null
+): Promise<{ success: true; count: number } | { error: string }> {
+  if (ticketIds.length === 0) {
+    return { error: 'No tickets selected' };
+  }
+
+  const supabase = await createClient();
+
+  const { error, count } = await supabase
+    .from('tickets')
+    .update({ assigned_agent_id: agentId })
+    .in('id', ticketIds);
+
+  if (error) {
+    console.error('Bulk assign error:', error);
+    return { error: 'Failed to assign tickets' };
+  }
+
+  revalidatePath('/tickets');
+  return { success: true, count: count || ticketIds.length };
+}
+
+export async function bulkAddTagToTickets(
+  ticketIds: string[],
+  tagId: string
+): Promise<{ success: true; count: number } | { error: string }> {
+  if (ticketIds.length === 0) {
+    return { error: 'No tickets selected' };
+  }
+
+  const supabase = await createClient();
+
+  // Create insert records for each ticket-tag pair
+  const insertRecords = ticketIds.map((ticketId) => ({
+    ticket_id: ticketId,
+    tag_id: tagId,
+  }));
+
+  // Use upsert to avoid errors for tickets that already have the tag
+  const { error } = await supabase
+    .from('ticket_tags')
+    .upsert(insertRecords, { onConflict: 'ticket_id,tag_id', ignoreDuplicates: true });
+
+  if (error) {
+    console.error('Bulk add tag error:', error);
+    return { error: 'Failed to add tag to tickets' };
+  }
+
+  revalidatePath('/tickets');
+  return { success: true, count: ticketIds.length };
+}
