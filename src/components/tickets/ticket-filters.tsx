@@ -27,6 +27,10 @@ export function TicketFilters({ agents }: TicketFiltersProps) {
   );
   const debouncedSearch = useDebounce(searchValue, 300);
 
+  // Hide assignee filter when viewing a specific inbox
+  const currentView = searchParams.get('view');
+  const hideAssigneeFilter = ['unassigned', 'my-inbox', 'agent'].includes(currentView || '');
+
   const updateFilter = useCallback(
     (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
@@ -91,23 +95,25 @@ export function TicketFilters({ agents }: TicketFiltersProps) {
         </SelectContent>
       </Select>
 
-      <Select
-        value={searchParams.get('assignee') || 'all'}
-        onValueChange={(value) => updateFilter('assignee', value)}
-      >
-        <SelectTrigger className="w-40">
-          <SelectValue placeholder="Assignee" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Assignees</SelectItem>
-          <SelectItem value="unassigned">Unassigned</SelectItem>
-          {agents.map((agent) => (
-            <SelectItem key={agent.id} value={agent.id}>
-              {agent.full_name || agent.email}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {!hideAssigneeFilter && (
+        <Select
+          value={searchParams.get('assignee') || 'all'}
+          onValueChange={(value) => updateFilter('assignee', value)}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Assignee" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Assignees</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
+            {agents.map((agent) => (
+              <SelectItem key={agent.id} value={agent.id}>
+                {agent.full_name || agent.email}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

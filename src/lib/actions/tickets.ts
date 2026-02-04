@@ -17,7 +17,87 @@ import type {
   TicketSearchResult,
   MatchField,
   UserRole,
+  Profile,
 } from '@/lib/supabase/types';
+
+// Ticket View Counts
+
+export interface TicketViewCounts {
+  unassigned: number;
+  myInbox: number;
+  all: number;
+}
+
+export interface AgentInboxCount {
+  agent: Pick<Profile, 'id' | 'full_name' | 'email'>;
+  count: number;
+}
+
+export async function getTicketViewCounts(): Promise<TicketViewCounts> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Get unassigned tickets (no assigned agent AND no agent replies)
+  const { count: unassignedCount } = await supabase
+    .from('tickets')
+    .select('id', { count: 'exact', head: true })
+    .is('assigned_agent_id', null)
+    .in('status', ['open', 'pending']);
+
+  // Get my inbox count (tickets assigned to current user)
+  const { count: myInboxCount } = await supabase
+    .from('tickets')
+    .select('id', { count: 'exact', head: true })
+    .eq('assigned_agent_id', user?.id || '')
+    .in('status', ['open', 'pending']);
+
+  // Get all tickets count
+  const { count: allCount } = await supabase
+    .from('tickets')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['open', 'pending']);
+
+  return {
+    unassigned: unassignedCount || 0,
+    myInbox: myInboxCount || 0,
+    all: allCount || 0,
+  };
+}
+
+export async function getAgentInboxCounts(): Promise<AgentInboxCount[]> {
+  const supabase = await createClient();
+
+  // Get all active agents
+  const { data: agents } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .in('role', ['admin', 'agent'])
+    .eq('is_active', true)
+    .order('full_name');
+
+  if (!agents) return [];
+
+  // Get ticket counts for each agent
+  const agentCounts: AgentInboxCount[] = [];
+
+  for (const agent of agents) {
+    const { count } = await supabase
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_agent_id', agent.id)
+      .in('status', ['open', 'pending']);
+
+    agentCounts.push({
+      agent,
+      count: count || 0,
+    });
+  }
+
+  return agentCounts;
+}
 
 type SearchTicketRow = {
   id: string;

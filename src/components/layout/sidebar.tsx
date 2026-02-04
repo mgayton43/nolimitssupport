@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Inbox,
   Users,
   BarChart3,
   Settings,
@@ -14,9 +13,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
+import { TicketViews } from './ticket-views';
 
 const navigation = [
-  { name: 'Tickets', href: '/tickets', icon: Inbox },
   { name: 'Customers', href: '/customers', icon: Users },
   { name: 'Reports', href: '/reports', icon: BarChart3 },
 ];
@@ -44,8 +43,12 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        {/* Ticket Views */}
+        <TicketViews />
+
+        {/* Other Navigation */}
+        <div className="mb-2 mt-6 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
           Main
         </div>
         {navigation.map((item) => {

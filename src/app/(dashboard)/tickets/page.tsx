@@ -16,23 +16,44 @@ interface PageProps {
     priority?: string;
     assignee?: string;
     search?: string;
+    view?: string;
+    agent?: string;
   }>;
+}
+
+function getViewTitle(view: string | undefined, agentName?: string): string {
+  switch (view) {
+    case 'unassigned':
+      return 'Unassigned Tickets';
+    case 'my-inbox':
+      return 'My Inbox';
+    case 'agent':
+      return agentName ? `${agentName}'s Inbox` : 'Agent Inbox';
+    default:
+      return 'All Tickets';
+  }
 }
 
 async function TicketListContent({
   searchParams,
   agents,
   tags,
+  currentUserId,
 }: {
   searchParams: {
     status?: string;
     priority?: string;
     assignee?: string;
     search?: string;
+    view?: string;
+    agent?: string;
   };
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
   tags: Tag[];
+  currentUserId: string;
 }) {
+  const supabase = await createClient();
+
   // Use enhanced search when search term is present
   if (searchParams.search) {
     const result = await searchTickets({
@@ -50,12 +71,21 @@ async function TicketListContent({
       );
     }
 
-    return <TicketList tickets={result.tickets} agents={agents} tags={tags} />;
+    // Apply view filters to search results
+    let filteredTickets = result.tickets;
+
+    if (searchParams.view === 'unassigned') {
+      filteredTickets = filteredTickets.filter((t) => !t.assigned_agent_id);
+    } else if (searchParams.view === 'my-inbox') {
+      filteredTickets = filteredTickets.filter((t) => t.assigned_agent_id === currentUserId);
+    } else if (searchParams.view === 'agent' && searchParams.agent) {
+      filteredTickets = filteredTickets.filter((t) => t.assigned_agent_id === searchParams.agent);
+    }
+
+    return <TicketList tickets={filteredTickets} agents={agents} tags={tags} />;
   }
 
   // Standard query without search
-  const supabase = await createClient();
-
   let query = supabase
     .from('tickets')
     .select(
@@ -68,6 +98,16 @@ async function TicketListContent({
     )
     .order('created_at', { ascending: false });
 
+  // Apply view-specific filters
+  if (searchParams.view === 'unassigned') {
+    query = query.is('assigned_agent_id', null);
+  } else if (searchParams.view === 'my-inbox') {
+    query = query.eq('assigned_agent_id', currentUserId);
+  } else if (searchParams.view === 'agent' && searchParams.agent) {
+    query = query.eq('assigned_agent_id', searchParams.agent);
+  }
+
+  // Apply additional filters
   if (searchParams.status && searchParams.status !== 'all') {
     query = query.eq('status', searchParams.status);
   }
@@ -76,7 +116,12 @@ async function TicketListContent({
     query = query.eq('priority', searchParams.priority);
   }
 
-  if (searchParams.assignee && searchParams.assignee !== 'all') {
+  // Only apply assignee filter if not using a view that already filters by assignee
+  if (
+    searchParams.assignee &&
+    searchParams.assignee !== 'all' &&
+    !['unassigned', 'my-inbox', 'agent'].includes(searchParams.view || '')
+  ) {
     if (searchParams.assignee === 'unassigned') {
       query = query.is('assigned_agent_id', null);
     } else {
@@ -118,6 +163,11 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   const resolvedSearchParams = await searchParams;
   const supabase = await createClient();
 
+  // Get current user
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   // Fetch agents for filter dropdown and bulk actions
   const { data: agents } = await supabase
     .from('profiles')
@@ -131,9 +181,18 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     .select('*')
     .order('name');
 
+  // Get agent name if viewing a specific agent's inbox
+  let agentName: string | undefined;
+  if (resolvedSearchParams.view === 'agent' && resolvedSearchParams.agent) {
+    const agent = agents?.find((a) => a.id === resolvedSearchParams.agent);
+    agentName = agent?.full_name || agent?.email;
+  }
+
+  const title = getViewTitle(resolvedSearchParams.view, agentName);
+
   return (
     <div className="flex h-full flex-col">
-      <Header title="Tickets">
+      <Header title={title}>
         <Link href="/tickets/new">
           <Button size="sm">
             <Plus className="mr-2 h-4 w-4" />
@@ -152,6 +211,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
             searchParams={resolvedSearchParams}
             agents={agents || []}
             tags={tags || []}
+            currentUserId={user?.id || ''}
           />
         </Suspense>
       </div>
