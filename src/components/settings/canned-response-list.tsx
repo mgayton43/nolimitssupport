@@ -4,9 +4,9 @@ import { useState, useTransition, useRef } from 'react';
 import { Plus, Pencil, Trash2, Info, Upload, Download, FileText, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import {
   Dialog,
   DialogContent,
@@ -29,11 +29,12 @@ import {
   type BulkCannedResponseInput,
 } from '@/lib/actions/canned-responses';
 import { AVAILABLE_VARIABLES } from '@/lib/utils/template-variables';
-import type { CannedResponse, Profile, Brand } from '@/lib/supabase/types';
+import type { CannedResponse, Profile, Brand, Resource } from '@/lib/supabase/types';
 
 interface CannedResponseListProps {
   responses: (CannedResponse & { creator: Pick<Profile, 'full_name' | 'email'> | null; brand?: Brand | null })[];
   brands: Brand[];
+  resources?: Resource[];
 }
 
 interface ParsedRow {
@@ -128,7 +129,7 @@ function generateCSVTemplate(): string {
   return [headers, ...examples].join('\n');
 }
 
-export function CannedResponseList({ responses, brands }: CannedResponseListProps) {
+export function CannedResponseList({ responses, brands, resources = [] }: CannedResponseListProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
   const [editingResponse, setEditingResponse] = useState<CannedResponse | null>(null);
@@ -136,6 +137,7 @@ export function CannedResponseList({ responses, brands }: CannedResponseListProp
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [importResult, setImportResult] = useState<{ success: boolean; message: string } | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('all');
+  const [editorContent, setEditorContent] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -148,7 +150,7 @@ export function CannedResponseList({ responses, brands }: CannedResponseListProp
         await updateCannedResponse({
           id: editingResponse.id,
           title: formData.get('title') as string,
-          content: formData.get('content') as string,
+          content: editorContent,
           shortcut: (formData.get('shortcut') as string) || undefined,
           category: (formData.get('category') as string) || undefined,
           brand_id: brandId === 'all' ? null : brandId || null,
@@ -156,7 +158,7 @@ export function CannedResponseList({ responses, brands }: CannedResponseListProp
       } else {
         await createCannedResponse({
           title: formData.get('title') as string,
-          content: formData.get('content') as string,
+          content: editorContent,
           shortcut: (formData.get('shortcut') as string) || undefined,
           category: (formData.get('category') as string) || undefined,
           brand_id: brandId === 'all' ? null : brandId || null,
@@ -164,6 +166,7 @@ export function CannedResponseList({ responses, brands }: CannedResponseListProp
       }
       setIsDialogOpen(false);
       setEditingResponse(null);
+      setEditorContent('');
     });
   };
 
@@ -181,11 +184,13 @@ export function CannedResponseList({ responses, brands }: CannedResponseListProp
 
   const openCreateDialog = () => {
     setEditingResponse(null);
+    setEditorContent('');
     setIsDialogOpen(true);
   };
 
   const openEditDialog = (response: CannedResponse) => {
     setEditingResponse(response);
+    setEditorContent(response.content);
     setIsDialogOpen(true);
   };
 
@@ -400,99 +405,111 @@ export function CannedResponseList({ responses, brands }: CannedResponseListProp
       )}
 
       {/* Create/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        setIsDialogOpen(open);
+        if (!open) {
+          setEditingResponse(null);
+          setEditorContent('');
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editingResponse ? 'Edit Canned Response' : 'Create Canned Response'}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="title" className="text-sm font-medium">
-                Title
-              </label>
-              <Input
-                id="title"
-                name="title"
-                defaultValue={editingResponse?.title}
-                placeholder="e.g., Thank you for contacting"
-                required
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="title" className="text-sm font-medium">
+                  Title
+                </label>
+                <Input
+                  id="title"
+                  name="title"
+                  defaultValue={editingResponse?.title}
+                  placeholder="e.g., Thank you for contacting"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="shortcut" className="text-sm font-medium">
+                  Shortcut (optional)
+                </label>
+                <Input
+                  id="shortcut"
+                  name="shortcut"
+                  defaultValue={editingResponse?.shortcut || ''}
+                  placeholder="e.g., thanks"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="shortcut" className="text-sm font-medium">
-                Shortcut (optional)
-              </label>
-              <Input
-                id="shortcut"
-                name="shortcut"
-                defaultValue={editingResponse?.shortcut || ''}
-                placeholder="e.g., thanks"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="category" className="text-sm font-medium">
-                Category (optional)
-              </label>
-              <Input
-                id="category"
-                name="category"
-                defaultValue={editingResponse?.category || ''}
-                placeholder="e.g., Greetings"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="brand_id" className="text-sm font-medium">
-                Brand
-              </label>
-              <Select
-                name="brand_id"
-                defaultValue={editingResponse?.brand_id || 'all'}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select brand" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Brands</SelectItem>
-                  {brands.map((brand) => (
-                    <SelectItem key={brand.id} value={brand.id}>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-3 w-3 rounded-full"
-                          style={{ backgroundColor: brand.color }}
-                        />
-                        {brand.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-zinc-500">
-                Select a brand to restrict this response, or &quot;All Brands&quot; for universal use.
-              </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="category" className="text-sm font-medium">
+                  Category (optional)
+                </label>
+                <Input
+                  id="category"
+                  name="category"
+                  defaultValue={editingResponse?.category || ''}
+                  placeholder="e.g., Greetings"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="brand_id" className="text-sm font-medium">
+                  Brand
+                </label>
+                <Select
+                  name="brand_id"
+                  defaultValue={editingResponse?.brand_id || 'all'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select brand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Brands</SelectItem>
+                    {brands.map((brand) => (
+                      <SelectItem key={brand.id} value={brand.id}>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-3 w-3 rounded-full"
+                            style={{ backgroundColor: brand.color }}
+                          />
+                          {brand.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
               <label htmlFor="content" className="text-sm font-medium">
                 Content
               </label>
-              <Textarea
+              <RichTextEditor
                 id="content"
-                name="content"
-                defaultValue={editingResponse?.content}
+                value={editorContent}
+                onChange={setEditorContent}
                 placeholder="Hi {{customer_name}}, thanks for reaching out..."
-                rows={6}
+                minHeight={150}
+                maxHeight={300}
+                showPreview={true}
+                showResources={resources.length > 0}
+                resources={resources}
+                uploadPath="canned-responses"
                 required
               />
               <p className="text-xs text-zinc-500">
-                Tip: Use {'{{'}<span>customer_name</span>{'}}'},  {'{{'}<span>customer_email</span>{'}}'},  {'{{'}<span>ticket_number</span>{'}}'},  or {'{{'}<span>agent_name</span>{'}}'} for dynamic content.
+                Tip: Use {'{{'}<span>customer_name</span>{'}}'},  {'{{'}<span>customer_email</span>{'}}'},  {'{{'}<span>ticket_number</span>{'}}'},  or {'{{'}<span>agent_name</span>{'}}'} for dynamic content. Use the Preview button to see how it will look.
               </p>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending}>
+              <Button type="submit" disabled={isPending || !editorContent.trim()}>
                 {isPending ? 'Saving...' : editingResponse ? 'Update' : 'Create'}
               </Button>
             </DialogFooter>

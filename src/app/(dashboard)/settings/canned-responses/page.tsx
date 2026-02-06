@@ -4,16 +4,18 @@ import { Header } from '@/components/layout/header';
 import { CannedResponseList } from '@/components/settings/canned-response-list';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getBrands } from '@/lib/actions/brands';
+import { getResources } from '@/lib/actions/resources';
 
 async function CannedResponsesContent() {
   const supabase = await createClient();
 
-  const [responsesResult, brandsResult] = await Promise.all([
+  const [responsesResult, brandsResult, resourcesResult] = await Promise.all([
     supabase
       .from('canned_responses')
       .select('*, creator:profiles(full_name, email)')
       .order('title'),
     getBrands(),
+    getResources(),
   ]);
 
   if (responsesResult.error) {
@@ -28,6 +30,7 @@ async function CannedResponsesContent() {
     <CannedResponseList
       responses={responsesResult.data || []}
       brands={brandsResult.brands}
+      resources={resourcesResult.resources}
     />
   );
 }
