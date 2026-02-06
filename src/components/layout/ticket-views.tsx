@@ -3,15 +3,26 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Inbox, InboxIcon, Users, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  Inbox,
+  InboxIcon,
+  Users,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  CheckCircle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/components/providers/auth-provider';
+import { unsnoozeExpiredTickets } from '@/lib/actions/messages';
 import type { Profile } from '@/lib/supabase/types';
 
 interface TicketViewCounts {
   unassigned: number;
   myInbox: number;
+  mySnoozed: number;
+  myClosed: number;
   all: number;
 }
 
@@ -20,18 +31,32 @@ interface AgentInboxCount {
   count: number;
 }
 
-function CountBadge({ count, variant = 'default' }: { count: number; variant?: 'default' | 'muted' }) {
+function CountBadge({
+  count,
+  variant = 'default',
+  icon,
+}: {
+  count: number;
+  variant?: 'default' | 'muted' | 'orange' | 'green';
+  icon?: React.ReactNode;
+}) {
   if (count === 0) return null;
+
+  const variantStyles = {
+    default: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    muted: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400',
+    orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  };
 
   return (
     <span
       className={cn(
-        'ml-auto rounded-full px-2 py-0.5 text-xs font-medium',
-        variant === 'default'
-          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-          : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400'
+        'ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+        variantStyles[variant]
       )}
     >
+      {icon}
       {count > 99 ? '99+' : count}
     </span>
   );
@@ -41,7 +66,13 @@ export function TicketViews() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { profile } = useAuth();
-  const [counts, setCounts] = useState<TicketViewCounts>({ unassigned: 0, myInbox: 0, all: 0 });
+  const [counts, setCounts] = useState<TicketViewCounts>({
+    unassigned: 0,
+    myInbox: 0,
+    mySnoozed: 0,
+    myClosed: 0,
+    all: 0,
+  });
   const [agentCounts, setAgentCounts] = useState<AgentInboxCount[]>([]);
   const [isAgentInboxesOpen, setIsAgentInboxesOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -56,21 +87,41 @@ export function TicketViews() {
     const fetchCounts = async () => {
       const supabase = createClient();
 
-      // Get unassigned count
+      // First, check and unsnooze any expired tickets
+      await unsnoozeExpiredTickets();
+
+      // Get unassigned count (exclude snoozed)
       const { count: unassignedCount } = await supabase
         .from('tickets')
         .select('id', { count: 'exact', head: true })
         .is('assigned_agent_id', null)
-        .in('status', ['open', 'pending']);
+        .in('status', ['open', 'pending'])
+        .is('snoozed_until', null);
 
-      // Get my inbox count
+      // Get my inbox count (open/pending, not snoozed)
       const { count: myInboxCount } = await supabase
         .from('tickets')
         .select('id', { count: 'exact', head: true })
         .eq('assigned_agent_id', profile?.id || '')
-        .in('status', ['open', 'pending']);
+        .in('status', ['open', 'pending'])
+        .is('snoozed_until', null);
 
-      // Get all tickets count
+      // Get my snoozed count
+      const { count: mySnoozedCount } = await supabase
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('assigned_agent_id', profile?.id || '')
+        .not('snoozed_until', 'is', null)
+        .gt('snoozed_until', new Date().toISOString());
+
+      // Get my closed count
+      const { count: myClosedCount } = await supabase
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('assigned_agent_id', profile?.id || '')
+        .eq('status', 'closed');
+
+      // Get all tickets count (open/pending)
       const { count: allCount } = await supabase
         .from('tickets')
         .select('id', { count: 'exact', head: true })
@@ -79,6 +130,8 @@ export function TicketViews() {
       setCounts({
         unassigned: unassignedCount || 0,
         myInbox: myInboxCount || 0,
+        mySnoozed: mySnoozedCount || 0,
+        myClosed: myClosedCount || 0,
         all: allCount || 0,
       });
 
@@ -145,6 +198,7 @@ export function TicketViews() {
       icon: InboxIcon,
       count: counts.unassigned,
       view: 'unassigned',
+      badgeVariant: 'default' as const,
     },
     {
       name: 'My Inbox',
@@ -152,6 +206,23 @@ export function TicketViews() {
       icon: Inbox,
       count: counts.myInbox,
       view: 'my-inbox',
+      badgeVariant: 'default' as const,
+    },
+    {
+      name: 'My Snoozed',
+      href: '/tickets?view=my-snoozed',
+      icon: Clock,
+      count: counts.mySnoozed,
+      view: 'my-snoozed',
+      badgeVariant: 'orange' as const,
+    },
+    {
+      name: 'My Closed',
+      href: '/tickets?view=my-closed',
+      icon: CheckCircle,
+      count: counts.myClosed,
+      view: 'my-closed',
+      badgeVariant: 'green' as const,
     },
     {
       name: 'All Tickets',
@@ -159,6 +230,7 @@ export function TicketViews() {
       icon: Users,
       count: counts.all,
       view: 'all',
+      badgeVariant: 'muted' as const,
     },
   ];
 
@@ -183,7 +255,7 @@ export function TicketViews() {
           >
             <item.icon className="h-5 w-5" />
             {item.name}
-            <CountBadge count={item.count} />
+            <CountBadge count={item.count} variant={item.badgeVariant} />
           </Link>
         );
       })}

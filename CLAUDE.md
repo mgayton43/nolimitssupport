@@ -1,4 +1,4 @@
-# Strikeman Support Desk
+# NoLimits Support
 
 > **Monorepo Integration Note:** This app will be integrated into the nolimitsOS monorepo (pnpm workspaces). It should eventually live at `apps/support-desk/` and use shared packages from `packages/*`.
 

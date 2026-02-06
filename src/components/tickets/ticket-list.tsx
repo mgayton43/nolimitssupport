@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { TicketListItem } from './ticket-list-item';
 import { BulkActionBar } from './bulk-action-bar';
+import { useTicketListPresence } from '@/lib/hooks/use-ticket-presence';
 import type { TicketSearchResult, Profile, Tag } from '@/lib/supabase/types';
 
 interface TicketListProps {
@@ -14,6 +15,10 @@ interface TicketListProps {
 export function TicketList({ tickets, agents, tags }: TicketListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Get ticket IDs for presence tracking
+  const ticketIds = useMemo(() => tickets.map((t) => t.id), [tickets]);
+  const presenceMap = useTicketListPresence(ticketIds);
 
   const allSelected = tickets.length > 0 && selectedIds.size === tickets.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < tickets.length;
@@ -96,6 +101,7 @@ export function TicketList({ tickets, agents, tags }: TicketListProps) {
             matchField={ticket.match_field}
             selected={selectedIds.has(ticket.id)}
             onSelect={handleSelectTicket}
+            viewers={presenceMap.get(ticket.id)}
           />
         ))}
       </div>

@@ -42,7 +42,7 @@ export default function LoginPage() {
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900">
           <HelpCircle className="h-7 w-7" />
         </div>
-        <CardTitle className="text-2xl">Strikeman Support Desk</CardTitle>
+        <CardTitle className="text-2xl">NoLimits Support</CardTitle>
         <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
       <CardContent>

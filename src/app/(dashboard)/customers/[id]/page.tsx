@@ -21,7 +21,7 @@ interface TicketWithAgent {
   status: TicketStatus;
   priority: TicketPriority;
   created_at: string;
-  assigned_agent: { full_name: string | null } | null;
+  assigned_agent: { full_name: string | null; email: string } | null;
 }
 
 export default async function CustomerDetailPage({ params }: PageProps) {
@@ -43,7 +43,7 @@ export default async function CustomerDetailPage({ params }: PageProps) {
   // Fetch customer's tickets
   const { data: ticketsData } = await supabase
     .from('tickets')
-    .select('*, assigned_agent:profiles(full_name)')
+    .select('*, assigned_agent:profiles!tickets_assigned_agent_id_fkey(full_name, email)')
     .eq('customer_id', id)
     .order('created_at', { ascending: false })
     .limit(20);
@@ -141,7 +141,7 @@ export default async function CustomerDetailPage({ params }: PageProps) {
                         <p className="text-sm text-zinc-500 dark:text-zinc-400">
                           {formatRelativeTime(ticket.created_at)}
                           {ticket.assigned_agent && (
-                            <> · Assigned to {ticket.assigned_agent.full_name}</>
+                            <> · Assigned to {ticket.assigned_agent.full_name || ticket.assigned_agent.email}</>
                           )}
                         </p>
                       </div>

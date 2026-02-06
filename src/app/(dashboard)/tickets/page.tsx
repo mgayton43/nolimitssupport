@@ -8,7 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { searchTickets } from '@/lib/actions/tickets';
-import type { TicketSearchResult, Profile, Tag } from '@/lib/supabase/types';
+import { getBrands } from '@/lib/actions/brands';
+import type { TicketSearchResult, Profile, Tag, Brand } from '@/lib/supabase/types';
 
 interface PageProps {
   searchParams: Promise<{
@@ -18,6 +19,8 @@ interface PageProps {
     search?: string;
     view?: string;
     agent?: string;
+    channel?: string;
+    brand?: string;
   }>;
 }
 
@@ -27,6 +30,10 @@ function getViewTitle(view: string | undefined, agentName?: string): string {
       return 'Unassigned Tickets';
     case 'my-inbox':
       return 'My Inbox';
+    case 'my-snoozed':
+      return 'My Snoozed Tickets';
+    case 'my-closed':
+      return 'My Closed Tickets';
     case 'agent':
       return agentName ? `${agentName}'s Inbox` : 'Agent Inbox';
     default:
@@ -47,6 +54,8 @@ async function TicketListContent({
     search?: string;
     view?: string;
     agent?: string;
+    channel?: string;
+    brand?: string;
   };
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
   tags: Tag[];
@@ -61,6 +70,8 @@ async function TicketListContent({
       status: searchParams.status,
       priority: searchParams.priority,
       assignee: searchParams.assignee,
+      channel: searchParams.channel,
+      brand: searchParams.brand,
     });
 
     if ('error' in result) {
@@ -75,24 +86,46 @@ async function TicketListContent({
     let filteredTickets = result.tickets;
 
     if (searchParams.view === 'unassigned') {
-      filteredTickets = filteredTickets.filter((t) => !t.assigned_agent_id);
+      filteredTickets = filteredTickets.filter(
+        (t) => !t.assigned_agent_id && ['open', 'pending'].includes(t.status)
+      );
     } else if (searchParams.view === 'my-inbox') {
-      filteredTickets = filteredTickets.filter((t) => t.assigned_agent_id === currentUserId);
+      filteredTickets = filteredTickets.filter(
+        (t) =>
+          t.assigned_agent_id === currentUserId && ['open', 'pending'].includes(t.status)
+      );
+    } else if (searchParams.view === 'my-snoozed') {
+      filteredTickets = filteredTickets.filter(
+        (t) =>
+          t.assigned_agent_id === currentUserId &&
+          t.snoozed_until &&
+          new Date(t.snoozed_until) > new Date()
+      );
+    } else if (searchParams.view === 'my-closed') {
+      filteredTickets = filteredTickets.filter(
+        (t) => t.assigned_agent_id === currentUserId && t.status === 'closed'
+      );
     } else if (searchParams.view === 'agent' && searchParams.agent) {
       filteredTickets = filteredTickets.filter((t) => t.assigned_agent_id === searchParams.agent);
+    }
+
+    // Apply brand filter to search results
+    if (searchParams.brand && searchParams.brand !== 'all') {
+      filteredTickets = filteredTickets.filter((t) => t.brand_id === searchParams.brand);
     }
 
     return <TicketList tickets={filteredTickets} agents={agents} tags={tags} />;
   }
 
   // Standard query without search
+  // Try with brand first, fall back to without if brands table doesn't exist
   let query = supabase
     .from('tickets')
     .select(
       `
       *,
       customer:customers(*),
-      assigned_agent:profiles(*),
+      assigned_agent:profiles!tickets_assigned_agent_id_fkey(*),
       assigned_team:teams(*)
     `
     )
@@ -100,9 +133,42 @@ async function TicketListContent({
 
   // Apply view-specific filters
   if (searchParams.view === 'unassigned') {
-    query = query.is('assigned_agent_id', null);
+    query = query
+      .is('assigned_agent_id', null)
+      .in('status', ['open', 'pending'])
+      .is('snoozed_until', null);
   } else if (searchParams.view === 'my-inbox') {
-    query = query.eq('assigned_agent_id', currentUserId);
+    // Show open/pending tickets assigned to me (excluding snoozed if column exists)
+    query = query.eq('assigned_agent_id', currentUserId).in('status', ['open', 'pending']);
+  } else if (searchParams.view === 'my-snoozed') {
+    // Show snoozed tickets assigned to me
+    // This view requires the snooze migration to be run
+    try {
+      const { data: snoozedTickets, error: snoozedError } = await supabase
+        .from('tickets')
+        .select(
+          `
+          *,
+          customer:customers(*),
+          assigned_agent:profiles!tickets_assigned_agent_id_fkey(*),
+          assigned_team:teams(*)
+        `
+        )
+        .eq('assigned_agent_id', currentUserId)
+        .not('snoozed_until', 'is', null)
+        .gt('snoozed_until', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (snoozedError) {
+        // Migration not run yet, return empty list
+        return <TicketList tickets={[]} agents={agents} tags={tags} />;
+      }
+      return <TicketList tickets={snoozedTickets || []} agents={agents} tags={tags} />;
+    } catch {
+      return <TicketList tickets={[]} agents={agents} tags={tags} />;
+    }
+  } else if (searchParams.view === 'my-closed') {
+    query = query.eq('assigned_agent_id', currentUserId).eq('status', 'closed');
   } else if (searchParams.view === 'agent' && searchParams.agent) {
     query = query.eq('assigned_agent_id', searchParams.agent);
   }
@@ -114,6 +180,14 @@ async function TicketListContent({
 
   if (searchParams.priority && searchParams.priority !== 'all') {
     query = query.eq('priority', searchParams.priority);
+  }
+
+  if (searchParams.channel && searchParams.channel !== 'all') {
+    query = query.eq('channel', searchParams.channel);
+  }
+
+  if (searchParams.brand && searchParams.brand !== 'all') {
+    query = query.eq('brand_id', searchParams.brand);
   }
 
   // Only apply assignee filter if not using a view that already filters by assignee
@@ -132,6 +206,7 @@ async function TicketListContent({
   const { data: tickets, error } = await query;
 
   if (error) {
+    console.error('Tickets query error:', error);
     return (
       <div className="flex h-full items-center justify-center text-zinc-500">
         Error loading tickets
@@ -181,6 +256,9 @@ export default async function TicketsPage({ searchParams }: PageProps) {
     .select('*')
     .order('name');
 
+  // Fetch brands for filter dropdown
+  const { brands } = await getBrands();
+
   // Get agent name if viewing a specific agent's inbox
   let agentName: string | undefined;
   if (resolvedSearchParams.view === 'agent' && resolvedSearchParams.agent) {
@@ -202,7 +280,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       </Header>
 
       <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
-        <TicketFilters agents={agents || []} />
+        <TicketFilters agents={agents || []} brands={brands} />
       </div>
 
       <div className="flex-1 overflow-auto">

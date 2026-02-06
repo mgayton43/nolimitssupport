@@ -51,11 +51,24 @@ export const ticketTagSchema = z.object({
 // Message schemas
 // ============================================
 
+export const attachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  size: z.number(),
+  type: z.string(),
+  url: z.string().url(),
+  path: z.string(),
+});
+
 export const sendMessageSchema = z.object({
   ticketId: uuidSchema,
-  content: z.string().min(1, 'Message content is required'),
+  content: z.string(),
   isInternal: z.boolean().optional(),
-});
+  attachments: z.array(attachmentSchema).optional(),
+}).refine(
+  (data) => data.content.trim().length > 0 || (data.attachments && data.attachments.length > 0),
+  { message: 'Message content or attachments required', path: ['content'] }
+);
 
 // ============================================
 // Customer schemas
@@ -85,6 +98,7 @@ export const createCannedResponseSchema = z.object({
   shortcut: z.string().max(50).optional(),
   category: z.string().max(100).optional(),
   is_shared: z.boolean().optional(),
+  brand_id: uuidSchema.nullable().optional(),
 });
 
 export const updateCannedResponseSchema = z.object({
@@ -94,6 +108,7 @@ export const updateCannedResponseSchema = z.object({
   shortcut: z.string().max(50).optional(),
   category: z.string().max(100).optional(),
   is_shared: z.boolean().optional(),
+  brand_id: uuidSchema.nullable().optional(),
 });
 
 // ============================================
@@ -135,6 +150,28 @@ export const toggleUserActiveSchema = z.object({
 });
 
 // ============================================
+// Resource schemas
+// ============================================
+
+export const resourceTypeSchema = z.enum(['video', 'article', 'faq', 'guide']);
+
+export const createResourceSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200),
+  description: z.string().max(500).optional(),
+  url: z.string().url('Must be a valid URL'),
+  type: resourceTypeSchema,
+  category: z.string().max(100).optional(),
+  thumbnail_url: z.string().url().optional().or(z.literal('')),
+  file_path: z.string().optional(),
+  is_uploaded: z.boolean().optional(),
+  brand_id: uuidSchema.nullable().optional(),
+});
+
+export const updateResourceSchema = createResourceSchema.extend({
+  id: uuidSchema,
+});
+
+// ============================================
 // Type exports (inferred from schemas)
 // ============================================
 
@@ -149,3 +186,5 @@ export type UpdateTagInput = z.infer<typeof updateTagSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>;
 export type UpdateUserTeamInput = z.infer<typeof updateUserTeamSchema>;
+export type CreateResourceInput = z.infer<typeof createResourceSchema>;
+export type UpdateResourceInput = z.infer<typeof updateResourceSchema>;

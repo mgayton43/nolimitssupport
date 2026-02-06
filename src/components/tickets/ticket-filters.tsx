@@ -12,13 +12,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useDebounce } from '@/lib/hooks/use-debounce';
-import type { Profile } from '@/lib/supabase/types';
+import { Mail, Facebook, Instagram, PenLine } from 'lucide-react';
+import type { Profile, Brand } from '@/lib/supabase/types';
 
 interface TicketFiltersProps {
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
+  brands: Brand[];
 }
 
-export function TicketFilters({ agents }: TicketFiltersProps) {
+export function TicketFilters({ agents, brands }: TicketFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -114,6 +116,65 @@ export function TicketFilters({ agents }: TicketFiltersProps) {
           </SelectContent>
         </Select>
       )}
+
+      <Select
+        value={searchParams.get('channel') || 'all'}
+        onValueChange={(value) => updateFilter('channel', value)}
+      >
+        <SelectTrigger className="w-36">
+          <SelectValue placeholder="Channel" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Channels</SelectItem>
+          <SelectItem value="email">
+            <div className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-blue-600" />
+              Email
+            </div>
+          </SelectItem>
+          <SelectItem value="facebook">
+            <div className="flex items-center gap-2">
+              <Facebook className="h-4 w-4 text-[#1877F2]" />
+              Facebook
+            </div>
+          </SelectItem>
+          <SelectItem value="instagram">
+            <div className="flex items-center gap-2">
+              <Instagram className="h-4 w-4 text-[#E4405F]" />
+              Instagram
+            </div>
+          </SelectItem>
+          <SelectItem value="manual">
+            <div className="flex items-center gap-2">
+              <PenLine className="h-4 w-4 text-zinc-500" />
+              Manual
+            </div>
+          </SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={searchParams.get('brand') || 'all'}
+        onValueChange={(value) => updateFilter('brand', value)}
+      >
+        <SelectTrigger className="w-36">
+          <SelectValue placeholder="Brand" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Brands</SelectItem>
+          {brands.map((brand) => (
+            <SelectItem key={brand.id} value={brand.id}>
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-3 w-3 rounded-full"
+                  style={{ backgroundColor: brand.color }}
+                />
+                {brand.name}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

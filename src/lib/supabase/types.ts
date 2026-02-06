@@ -13,6 +13,28 @@
 export type UserRole = 'admin' | 'agent' | 'viewer';
 export type TicketStatus = 'open' | 'pending' | 'closed';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TicketChannel = 'email' | 'facebook' | 'instagram' | 'manual';
+export type MessageSource = 'reply' | 'new_email' | 'merge';
+export type ResourceType = 'video' | 'article' | 'faq' | 'guide';
+
+export interface Brand {
+  id: string;
+  name: string;
+  slug: string;
+  email_address: string;
+  color: string;
+  logo_url: string | null;
+  created_at: string;
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+  path: string;
+}
 
 export interface Team {
   id: string;
@@ -72,16 +94,22 @@ export interface Ticket {
   subject: string;
   status: TicketStatus;
   priority: TicketPriority;
+  channel: TicketChannel;
   customer_id: string | null;
   assigned_agent_id: string | null;
   assigned_team_id: string | null;
+  brand_id: string | null;
   first_response_at: string | null;
   resolved_at: string | null;
+  snoozed_until: string | null;
+  snoozed_by: string | null;
+  merged_into_ticket_id: string | null;
   created_at: string;
   updated_at: string;
   customer?: Customer | null;
   assigned_agent?: Profile | null;
   assigned_team?: Team | null;
+  brand?: Brand | null;
   tags?: Tag[];
 }
 
@@ -89,6 +117,7 @@ export interface TicketWithRelations extends Ticket {
   customer: Customer | null;
   assigned_agent: Profile | null;
   assigned_team: Team | null;
+  brand: Brand | null;
   tags: Tag[];
   messages?: Message[];
 }
@@ -111,7 +140,8 @@ export interface Message {
   sender_id: string | null;
   content: string;
   is_internal: boolean;
-  attachments: unknown[];
+  source: MessageSource;
+  attachments: Attachment[];
   created_at: string;
   sender?: Profile | Customer | null;
 }
@@ -122,10 +152,29 @@ export interface CannedResponse {
   content: string;
   shortcut: string | null;
   category: string | null;
+  brand_id: string | null;
   created_by: string | null;
   is_shared: boolean;
   created_at: string;
   updated_at: string;
+  brand?: Brand | null;
+}
+
+export interface Resource {
+  id: string;
+  title: string;
+  description: string | null;
+  url: string;
+  type: ResourceType;
+  category: string | null;
+  brand_id: string | null;
+  thumbnail_url: string | null;
+  file_path: string | null;
+  is_uploaded: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  brand?: Brand | null;
 }
 
 export interface TicketActivity {
@@ -138,6 +187,15 @@ export interface TicketActivity {
   metadata: Record<string, unknown>;
   created_at: string;
   actor?: Profile | null;
+}
+
+export interface TicketPresence {
+  id: string;
+  ticket_id: string;
+  user_id: string;
+  last_seen_at: string;
+  is_typing: boolean;
+  created_at: string;
 }
 
 export interface Database {
@@ -193,6 +251,21 @@ export interface Database {
         Insert: Omit<AutoTagRule, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<AutoTagRule, 'id' | 'created_at'>>;
       };
+      ticket_presence: {
+        Row: TicketPresence;
+        Insert: Omit<TicketPresence, 'id' | 'created_at'>;
+        Update: Partial<Omit<TicketPresence, 'id' | 'created_at'>>;
+      };
+      resources: {
+        Row: Resource;
+        Insert: Omit<Resource, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Resource, 'id' | 'created_at'>>;
+      };
+      brands: {
+        Row: Brand;
+        Insert: Omit<Brand, 'id' | 'created_at'>;
+        Update: Partial<Omit<Brand, 'id' | 'created_at'>>;
+      };
     };
     Functions: {
       get_user_role: {
@@ -233,6 +306,7 @@ export interface Database {
           priority_filter?: TicketPriority | null;
           assignee_filter?: string | null;
           assignee_unassigned?: boolean;
+          channel_filter?: TicketChannel | null;
         };
         Returns: {
           id: string;
@@ -240,6 +314,7 @@ export interface Database {
           subject: string;
           status: TicketStatus;
           priority: TicketPriority;
+          channel: TicketChannel | null;
           customer_id: string | null;
           assigned_agent_id: string | null;
           assigned_team_id: string | null;

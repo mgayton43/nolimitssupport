@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Strikeman Support Desk',
+  title: 'NoLimits Support',
   description: 'Internal customer support helpdesk',
 };
 

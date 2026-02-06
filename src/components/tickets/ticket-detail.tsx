@@ -3,19 +3,25 @@
 import { useEffect, useState } from 'react';
 import { TicketConversation } from './ticket-conversation';
 import { TicketComposer } from './ticket-composer';
+import { TicketPresenceBanner } from './ticket-presence-banner';
+import { useTicketPresence } from '@/lib/hooks/use-ticket-presence';
 import { createClient } from '@/lib/supabase/client';
-import type { TicketWithRelations, Message, Profile, CannedResponse } from '@/lib/supabase/types';
+import type { TicketWithRelations, Message, Profile, CannedResponse, Resource } from '@/lib/supabase/types';
 
 interface TicketDetailProps {
   ticket: TicketWithRelations;
   cannedResponses: CannedResponse[];
+  resources: Resource[];
   agentName?: string | null;
 }
 
-export function TicketDetail({ ticket, cannedResponses, agentName }: TicketDetailProps) {
+export function TicketDetail({ ticket, cannedResponses, resources, agentName }: TicketDetailProps) {
   const [messages, setMessages] = useState<Message[]>(ticket.messages || []);
   const [agents, setAgents] = useState<Map<string, Profile>>(new Map());
   const supabase = createClient();
+
+  // Track presence for collision detection
+  const { otherViewers, setIsTyping } = useTicketPresence({ ticketId: ticket.id });
 
   // Fetch agents for message display
   useEffect(() => {
@@ -71,6 +77,9 @@ export function TicketDetail({ ticket, cannedResponses, agentName }: TicketDetai
 
   return (
     <div className="flex h-full flex-col">
+      {/* Presence banner - shows when others are viewing/typing */}
+      <TicketPresenceBanner viewers={otherViewers} />
+
       <div className="flex-1 overflow-auto">
         <TicketConversation
           messages={messages}
@@ -80,13 +89,16 @@ export function TicketDetail({ ticket, cannedResponses, agentName }: TicketDetai
       </div>
       <TicketComposer
         ticketId={ticket.id}
+        ticketBrandId={ticket.brand_id}
         cannedResponses={cannedResponses}
+        resources={resources}
         templateContext={{
           customerName: ticket.customer?.full_name,
           customerEmail: ticket.customer?.email,
           ticketNumber: ticket.ticket_number,
           agentName: agentName,
         }}
+        onTypingChange={setIsTyping}
       />
     </div>
   );

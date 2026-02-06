@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { LogOut, User, Bell } from 'lucide-react';
+import { LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';
 import {
@@ -13,10 +13,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/components/providers/auth-provider';
+import { NotificationBell } from '@/components/layout/notification-bell';
 import { getInitials } from '@/lib/utils';
 
 interface HeaderProps {
-  title?: string;
+  title?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -37,17 +38,15 @@ export function Header({ title, children }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-        </Button>
+        <NotificationBell />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
               <Avatar
                 src={profile?.avatar_url}
-                fallback={getInitials(profile?.full_name)}
-                alt={profile?.full_name || 'User'}
+                fallback={getInitials(profile?.full_name || profile?.email)}
+                alt={profile?.full_name || profile?.email || 'User'}
               />
             </Button>
           </DropdownMenuTrigger>

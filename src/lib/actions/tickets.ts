@@ -14,6 +14,7 @@ import {
 import type {
   TicketStatus,
   TicketPriority,
+  TicketChannel,
   TicketSearchResult,
   MatchField,
   UserRole,
@@ -105,9 +106,11 @@ type SearchTicketRow = {
   subject: string;
   status: TicketStatus;
   priority: TicketPriority;
+  channel: TicketChannel | null;
   customer_id: string | null;
   assigned_agent_id: string | null;
   assigned_team_id: string | null;
+  brand_id: string | null;
   first_response_at: string | null;
   resolved_at: string | null;
   created_at: string;
@@ -128,6 +131,9 @@ type SearchTicketRow = {
   agent_is_active: boolean | null;
   team_name: string | null;
   team_description: string | null;
+  brand_name: string | null;
+  brand_slug: string | null;
+  brand_color: string | null;
 };
 
 export async function createTicket(input: CreateTicketInput) {
@@ -156,6 +162,74 @@ export async function createTicket(input: CreateTicketInput) {
 
   if (existingCustomer) {
     customerId = existingCustomer.id;
+
+    // Check for existing open/pending ticket from this customer (auto-threading)
+    const { data: existingTicket } = await supabase
+      .from('tickets')
+      .select('id, ticket_number, snoozed_until, assigned_agent_id')
+      .eq('customer_id', customerId)
+      .in('status', ['open', 'pending'])
+      .is('merged_into_ticket_id', null)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (existingTicket) {
+      // Thread the message to the existing ticket instead of creating a new one
+      const { error: messageError } = await supabase.from('messages').insert({
+        ticket_id: existingTicket.id,
+        sender_type: 'customer',
+        sender_id: customerId,
+        content: parsed.data.message,
+        is_internal: false,
+        source: 'new_email',
+      });
+
+      if (messageError) {
+        return { error: 'Failed to add message to existing ticket' };
+      }
+
+      // Un-snooze if the ticket was snoozed
+      if (existingTicket.snoozed_until) {
+        await supabase
+          .from('tickets')
+          .update({
+            status: 'open',
+            snoozed_until: null,
+            snoozed_by: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingTicket.id);
+
+        // Notify the assigned agent that the customer replied
+        if (existingTicket.assigned_agent_id) {
+          await supabase.from('notifications').insert({
+            user_id: existingTicket.assigned_agent_id,
+            type: 'snooze_expired',
+            title: 'Customer replied to snoozed ticket',
+            message: `Ticket #${existingTicket.ticket_number} received a new message from the customer`,
+            ticket_id: existingTicket.id,
+          });
+        }
+      } else {
+        // Just update the updated_at timestamp
+        await supabase
+          .from('tickets')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', existingTicket.id);
+      }
+
+      // Apply auto-tagging rules to the new message
+      await supabase.rpc('apply_auto_tags', {
+        p_ticket_id: existingTicket.id,
+        p_subject: null,
+        p_body: parsed.data.message,
+      });
+
+      revalidatePath('/tickets');
+      revalidatePath(`/tickets/${existingTicket.id}`);
+      return { ticketId: existingTicket.id, threaded: true };
+    }
   } else {
     const { data: newCustomer, error: customerError } = await supabase
       .from('customers')
@@ -172,12 +246,13 @@ export async function createTicket(input: CreateTicketInput) {
     customerId = newCustomer.id;
   }
 
-  // Create ticket
+  // Create new ticket (no existing open ticket found)
   const { data: ticket, error: ticketError } = await supabase
     .from('tickets')
     .insert({
       subject: parsed.data.subject,
       priority: parsed.data.priority,
+      channel: 'manual',
       customer_id: customerId,
       assigned_agent_id: user.id,
     })
@@ -185,6 +260,7 @@ export async function createTicket(input: CreateTicketInput) {
     .single();
 
   if (ticketError || !ticket) {
+    console.error('Create ticket error:', ticketError);
     return { error: 'Failed to create ticket' };
   }
 
@@ -195,6 +271,7 @@ export async function createTicket(input: CreateTicketInput) {
     sender_id: customerId,
     content: parsed.data.message,
     is_internal: false,
+    source: 'reply',
   });
 
   if (messageError) {
@@ -208,8 +285,18 @@ export async function createTicket(input: CreateTicketInput) {
     p_body: parsed.data.message,
   });
 
+  // Apply auto-priority rules (only if priority is default 'medium')
+  if (parsed.data.priority === 'medium') {
+    await supabase.rpc('apply_auto_priority', {
+      p_ticket_id: ticket.id,
+      p_subject: parsed.data.subject,
+      p_body: parsed.data.message,
+      p_current_priority: parsed.data.priority,
+    });
+  }
+
   revalidatePath('/tickets');
-  return { ticketId: ticket.id };
+  return { ticketId: ticket.id, threaded: false };
 }
 
 export async function updateTicketStatus(ticketId: string, status: TicketStatus) {
@@ -358,6 +445,8 @@ export interface SearchTicketsParams {
   status?: string;
   priority?: string;
   assignee?: string;
+  channel?: string;
+  brand?: string;
 }
 
 export async function searchTickets(
@@ -378,6 +467,14 @@ export async function searchTickets(
     params.assignee && params.assignee !== 'all' && !assigneeUnassigned
       ? params.assignee
       : null;
+  const channelFilter =
+    params.channel && params.channel !== 'all'
+      ? (params.channel as TicketChannel)
+      : null;
+  const brandFilter =
+    params.brand && params.brand !== 'all'
+      ? params.brand
+      : null;
 
   const { data, error } = await supabase.rpc('search_tickets', {
     search_term: params.search,
@@ -385,6 +482,8 @@ export async function searchTickets(
     priority_filter: priorityFilter,
     assignee_filter: assigneeFilter,
     assignee_unassigned: assigneeUnassigned,
+    channel_filter: channelFilter,
+    brand_filter: brandFilter,
   });
 
   if (error) {
@@ -399,11 +498,16 @@ export async function searchTickets(
     subject: row.subject,
     status: row.status,
     priority: row.priority,
+    channel: row.channel || 'manual',
     customer_id: row.customer_id,
     assigned_agent_id: row.assigned_agent_id,
     assigned_team_id: row.assigned_team_id,
+    brand_id: row.brand_id,
     first_response_at: row.first_response_at,
     resolved_at: row.resolved_at,
+    snoozed_until: null,
+    snoozed_by: null,
+    merged_into_ticket_id: null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     match_field: row.match_field as MatchField,
@@ -439,6 +543,17 @@ export async function searchTickets(
           description: row.team_description,
           created_at: row.created_at,
           updated_at: row.updated_at,
+        }
+      : null,
+    brand: row.brand_id
+      ? {
+          id: row.brand_id,
+          name: row.brand_name || '',
+          slug: row.brand_slug || '',
+          email_address: '',
+          color: row.brand_color || '#6B7280',
+          logo_url: null,
+          created_at: row.created_at,
         }
       : null,
     tags: [],
@@ -535,4 +650,292 @@ export async function bulkAddTagToTickets(
 
   revalidatePath('/tickets');
   return { success: true, count: ticketIds.length };
+}
+
+// Standalone Ticket Actions (without sending a message)
+
+export type SnoozeDuration = '1-day' | '3-days' | '1-week';
+
+function getSnoozedUntil(duration: SnoozeDuration): Date {
+  const now = new Date();
+  switch (duration) {
+    case '1-day':
+      return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    case '3-days':
+      return new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    case '1-week':
+      return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    default:
+      return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  }
+}
+
+export async function closeTicket(ticketId: string) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  const { error } = await supabase
+    .from('tickets')
+    .update({
+      status: 'closed',
+      resolved_at: new Date().toISOString(),
+      snoozed_until: null,
+      snoozed_by: null,
+      assigned_agent_id: user.id,
+    })
+    .eq('id', ticketId);
+
+  if (error) {
+    console.error('Close ticket error:', error);
+    return { error: 'Failed to close ticket' };
+  }
+
+  revalidatePath(`/tickets/${ticketId}`);
+  revalidatePath('/tickets');
+  return { success: true };
+}
+
+export async function snoozeTicket(ticketId: string, duration: SnoozeDuration) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  const snoozedUntil = getSnoozedUntil(duration);
+
+  const { error } = await supabase
+    .from('tickets')
+    .update({
+      status: 'pending',
+      snoozed_until: snoozedUntil.toISOString(),
+      snoozed_by: user.id,
+      assigned_agent_id: user.id,
+    })
+    .eq('id', ticketId);
+
+  if (error) {
+    console.error('Snooze ticket error:', error);
+    return { error: 'Failed to snooze ticket' };
+  }
+
+  revalidatePath(`/tickets/${ticketId}`);
+  revalidatePath('/tickets');
+  return { success: true };
+}
+
+// Ticket Merge Functions
+
+export interface MergeableTicket {
+  id: string;
+  ticket_number: number;
+  subject: string;
+  status: TicketStatus;
+  created_at: string;
+  customer: {
+    email: string;
+    full_name: string | null;
+  } | null;
+}
+
+export async function searchTicketsForMerge(
+  query: string,
+  excludeTicketId: string
+): Promise<{ tickets: MergeableTicket[] } | { error: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // Search by ticket number or subject
+  let ticketQuery = supabase
+    .from('tickets')
+    .select('id, ticket_number, subject, status, created_at, customer:customers(email, full_name)')
+    .neq('id', excludeTicketId)
+    .is('merged_into_ticket_id', null)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  // If query is a number, search by ticket number
+  const ticketNumber = parseInt(query, 10);
+  if (!isNaN(ticketNumber)) {
+    ticketQuery = ticketQuery.eq('ticket_number', ticketNumber);
+  } else if (query.trim()) {
+    // Otherwise search by subject
+    ticketQuery = ticketQuery.ilike('subject', `%${query}%`);
+  }
+
+  const { data, error } = await ticketQuery;
+
+  if (error) {
+    console.error('Search tickets for merge error:', error);
+    return { error: 'Failed to search tickets' };
+  }
+
+  // Transform the data to handle Supabase's array return for single relations
+  const tickets: MergeableTicket[] = (data || []).map((row) => ({
+    id: row.id,
+    ticket_number: row.ticket_number,
+    subject: row.subject,
+    status: row.status,
+    created_at: row.created_at,
+    customer: Array.isArray(row.customer) ? row.customer[0] || null : row.customer,
+  }));
+
+  return { tickets };
+}
+
+export async function mergeTickets(
+  primaryTicketId: string,
+  secondaryTicketId: string
+): Promise<{ success: boolean; primaryTicketNumber?: number } | { error: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  // Validate tickets exist
+  const { data: primaryTicket } = await supabase
+    .from('tickets')
+    .select('id, ticket_number')
+    .eq('id', primaryTicketId)
+    .single();
+
+  const { data: secondaryTicket } = await supabase
+    .from('tickets')
+    .select('id, ticket_number')
+    .eq('id', secondaryTicketId)
+    .single();
+
+  if (!primaryTicket || !secondaryTicket) {
+    return { error: 'One or both tickets not found' };
+  }
+
+  if (primaryTicketId === secondaryTicketId) {
+    return { error: 'Cannot merge a ticket with itself' };
+  }
+
+  // Move all messages from secondary to primary
+  const { error: moveError } = await supabase
+    .from('messages')
+    .update({
+      ticket_id: primaryTicketId,
+      source: 'merge',
+    })
+    .eq('ticket_id', secondaryTicketId);
+
+  if (moveError) {
+    console.error('Move messages error:', moveError);
+    return { error: 'Failed to move messages' };
+  }
+
+  // Close and mark secondary ticket as merged
+  const { error: closeError } = await supabase
+    .from('tickets')
+    .update({
+      status: 'closed',
+      merged_into_ticket_id: primaryTicketId,
+      resolved_at: new Date().toISOString(),
+      snoozed_until: null,
+      snoozed_by: null,
+    })
+    .eq('id', secondaryTicketId);
+
+  if (closeError) {
+    console.error('Close secondary ticket error:', closeError);
+    return { error: 'Failed to close merged ticket' };
+  }
+
+  // Update primary ticket's updated_at
+  await supabase
+    .from('tickets')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', primaryTicketId);
+
+  // Add activity log to primary ticket
+  await supabase.from('ticket_activities').insert({
+    ticket_id: primaryTicketId,
+    actor_id: user.id,
+    action: 'ticket_merged',
+    new_value: `Merged from ticket #${secondaryTicket.ticket_number}`,
+    metadata: {
+      merged_ticket_id: secondaryTicketId,
+      merged_ticket_number: secondaryTicket.ticket_number,
+    },
+  });
+
+  // Add activity log to secondary ticket
+  await supabase.from('ticket_activities').insert({
+    ticket_id: secondaryTicketId,
+    actor_id: user.id,
+    action: 'ticket_merged_into',
+    new_value: `Merged into ticket #${primaryTicket.ticket_number}`,
+    metadata: {
+      primary_ticket_id: primaryTicketId,
+      primary_ticket_number: primaryTicket.ticket_number,
+    },
+  });
+
+  revalidatePath(`/tickets/${primaryTicketId}`);
+  revalidatePath(`/tickets/${secondaryTicketId}`);
+  revalidatePath('/tickets');
+
+  return { success: true, primaryTicketNumber: primaryTicket.ticket_number };
+}
+
+export async function getTicketMergeInfo(
+  ticketId: string
+): Promise<{ mergedFrom: number[]; mergedInto: { id: string; ticket_number: number } | null } | { error: string }> {
+  const supabase = await createClient();
+
+  // Check if this ticket was merged into another
+  const { data: ticket } = await supabase
+    .from('tickets')
+    .select('merged_into_ticket_id')
+    .eq('id', ticketId)
+    .single();
+
+  let mergedInto: { id: string; ticket_number: number } | null = null;
+  if (ticket?.merged_into_ticket_id) {
+    const { data: primaryTicket } = await supabase
+      .from('tickets')
+      .select('id, ticket_number')
+      .eq('id', ticket.merged_into_ticket_id)
+      .single();
+    if (primaryTicket) {
+      mergedInto = primaryTicket;
+    }
+  }
+
+  // Check if other tickets were merged into this one
+  const { data: mergedTickets } = await supabase
+    .from('tickets')
+    .select('ticket_number')
+    .eq('merged_into_ticket_id', ticketId)
+    .order('ticket_number');
+
+  const mergedFrom = (mergedTickets || []).map((t) => t.ticket_number);
+
+  return { mergedFrom, mergedInto };
 }

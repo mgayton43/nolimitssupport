@@ -1,4 +1,4 @@
--- Strikeman Support Desk Database Schema
+-- NoLimits Support Database Schema
 -- Initial migration
 
 -- Enable UUID extension

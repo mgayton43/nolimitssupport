@@ -54,13 +54,13 @@ export function UserList({ users, teams }: UserListProps) {
           <div key={user.id} className="flex items-center gap-4 p-4">
             <Avatar
               src={user.avatar_url}
-              fallback={getInitials(user.full_name)}
+              fallback={getInitials(user.full_name || user.email)}
               size="default"
             />
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <p className="font-medium truncate">{user.full_name || 'Unknown'}</p>
+                <p className="font-medium truncate">{user.full_name || user.email}</p>
                 {!user.is_active && (
                   <Badge variant="secondary" className="text-xs">
                     Inactive

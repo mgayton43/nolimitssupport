@@ -71,10 +71,11 @@ export function BulkActionBar({
       if ('error' in result) {
         onActionComplete(`Error: ${result.error}`);
       } else {
+        const agent = agents.find((a) => a.id === agentId);
         const agentName =
           agentId === 'unassigned'
             ? 'Unassigned'
-            : agents.find((a) => a.id === agentId)?.full_name || 'agent';
+            : agent?.full_name || agent?.email || 'agent';
         onActionComplete(
           `Assigned ${result.count} ticket${result.count !== 1 ? 's' : ''} to ${agentName}`
         );

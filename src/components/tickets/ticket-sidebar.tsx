@@ -13,6 +13,7 @@ import {
 import { StatusBadge } from './status-badge';
 import { PriorityBadge } from './priority-badge';
 import { TicketActivityLog } from './ticket-activity-log';
+import { OrderHistory } from './order-history';
 import {
   updateTicketStatus,
   updateTicketPriority,
@@ -22,7 +23,8 @@ import {
   removeTagFromTicket,
 } from '@/lib/actions/tickets';
 import { getInitials, formatDate } from '@/lib/utils';
-import { User, Users, Tag as TagIcon, Clock, X } from 'lucide-react';
+import { User, Users, Tag as TagIcon, Clock, X, Mail, Phone, ExternalLink, Ticket as TicketIcon } from 'lucide-react';
+import Link from 'next/link';
 import type {
   Ticket,
   Profile,
@@ -31,14 +33,16 @@ import type {
   TicketActivity,
   TicketStatus,
   TicketPriority,
+  Customer,
 } from '@/lib/supabase/types';
 
 interface TicketSidebarProps {
-  ticket: Ticket & { tags: Tag[] };
+  ticket: Ticket & { tags: Tag[]; customer: Customer | null };
   agents: Profile[];
   teams: Team[];
   allTags: Tag[];
   activities: (TicketActivity & { actor: Pick<Profile, 'full_name' | 'avatar_url'> | null })[];
+  customerTicketCount?: number;
 }
 
 export function TicketSidebar({
@@ -47,6 +51,7 @@ export function TicketSidebar({
   teams,
   allTags,
   activities,
+  customerTicketCount,
 }: TicketSidebarProps) {
   const [isPending, startTransition] = useTransition();
 
@@ -91,6 +96,59 @@ export function TicketSidebar({
 
   return (
     <div className="p-4 space-y-6">
+      {/* Customer */}
+      {ticket.customer && (
+        <div className="space-y-3">
+          <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            <User className="h-3.5 w-3.5" />
+            Customer
+          </label>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Avatar
+                src={ticket.customer.avatar_url}
+                fallback={getInitials(ticket.customer.full_name || ticket.customer.email)}
+                size="default"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium truncate">
+                  {ticket.customer.full_name || 'Unknown'}
+                </p>
+                <a
+                  href={`mailto:${ticket.customer.email}`}
+                  className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400 truncate"
+                >
+                  <Mail className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{ticket.customer.email}</span>
+                </a>
+              </div>
+            </div>
+            {ticket.customer.phone && (
+              <a
+                href={`tel:${ticket.customer.phone}`}
+                className="flex items-center gap-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                <Phone className="h-3.5 w-3.5" />
+                {ticket.customer.phone}
+              </a>
+            )}
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
+                <TicketIcon className="h-3.5 w-3.5" />
+                {customerTicketCount ?? 0} ticket{customerTicketCount !== 1 ? 's' : ''}
+              </span>
+              <Link
+                href={`/customers/${ticket.customer.id}`}
+                className="flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400"
+              >
+                View profile
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Status */}
       <div className="space-y-2">
         <label className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -151,7 +209,7 @@ export function TicketSidebar({
                 <div className="flex items-center gap-2">
                   <Avatar
                     src={agent.avatar_url}
-                    fallback={getInitials(agent.full_name)}
+                    fallback={getInitials(agent.full_name || agent.email)}
                     size="sm"
                     className="h-5 w-5"
                   />
@@ -258,6 +316,9 @@ export function TicketSidebar({
           )}
         </dl>
       </div>
+
+      {/* Order History (Shopify) */}
+      <OrderHistory customerEmail={ticket.customer?.email || null} />
 
       {/* Activity Log */}
       {activities.length > 0 && (

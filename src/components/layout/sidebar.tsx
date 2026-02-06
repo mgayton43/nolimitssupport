@@ -11,6 +11,8 @@ import {
   UserCog,
   HelpCircle,
   Wand2,
+  Gauge,
+  Library,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
@@ -24,8 +26,10 @@ const navigation = [
 const settingsNavigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Canned Responses', href: '/settings/canned-responses', icon: MessageSquare },
+  { name: 'Resources', href: '/settings/resources', icon: Library },
   { name: 'Tags', href: '/settings/tags', icon: Tag, adminOnly: true },
-  { name: 'Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
+  { name: 'Tag Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
+  { name: 'Priority Rules', href: '/settings/priority-rules', icon: Gauge, adminOnly: true },
   { name: 'Users', href: '/settings/users', icon: UserCog, adminOnly: true },
 ];
 
@@ -41,7 +45,7 @@ export function Sidebar() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900">
             <HelpCircle className="h-5 w-5" />
           </div>
-          <span className="text-lg font-semibold">Strikeman</span>
+          <span className="text-lg font-semibold">NoLimits Support</span>
         </Link>
       </div>
 

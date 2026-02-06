@@ -3,16 +3,20 @@ import { createClient } from '@/lib/supabase/server';
 import { Header } from '@/components/layout/header';
 import { CannedResponseList } from '@/components/settings/canned-response-list';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getBrands } from '@/lib/actions/brands';
 
 async function CannedResponsesContent() {
   const supabase = await createClient();
 
-  const { data: responses, error } = await supabase
-    .from('canned_responses')
-    .select('*, creator:profiles(full_name)')
-    .order('title');
+  const [responsesResult, brandsResult] = await Promise.all([
+    supabase
+      .from('canned_responses')
+      .select('*, creator:profiles(full_name, email)')
+      .order('title'),
+    getBrands(),
+  ]);
 
-  if (error) {
+  if (responsesResult.error) {
     return (
       <div className="flex h-64 items-center justify-center text-zinc-500">
         Error loading canned responses
@@ -20,7 +24,12 @@ async function CannedResponsesContent() {
     );
   }
 
-  return <CannedResponseList responses={responses || []} />;
+  return (
+    <CannedResponseList
+      responses={responsesResult.data || []}
+      brands={brandsResult.brands}
+    />
+  );
 }
 
 function CannedResponsesSkeleton() {
