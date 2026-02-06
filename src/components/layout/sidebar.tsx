@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -18,8 +18,25 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
-import { TicketViews } from './ticket-views';
 import { Skeleton } from '@/components/ui/skeleton';
+
+// Dynamic import with loading skeleton to handle useSearchParams Suspense requirement
+const TicketViews = dynamic(() => import('./ticket-views').then(mod => mod.TicketViews), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-1">
+      <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+        Tickets
+      </div>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="flex items-center gap-3 px-3 py-2">
+          <Skeleton className="h-5 w-5" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      ))}
+    </div>
+  ),
+});
 
 const navigation = [
   { name: 'Customers', href: '/customers', icon: Users },
@@ -55,23 +72,7 @@ export function Sidebar() {
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {/* Ticket Views */}
-        <Suspense
-          fallback={
-            <div className="space-y-1">
-              <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Tickets
-              </div>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-2">
-                  <Skeleton className="h-5 w-5" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              ))}
-            </div>
-          }
-        >
-          <TicketViews />
-        </Suspense>
+        <TicketViews />
 
         {/* Other Navigation */}
         <div className="mb-2 mt-6 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
