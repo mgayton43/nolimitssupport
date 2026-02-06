@@ -13,6 +13,7 @@ import {
   Wand2,
   Gauge,
   Library,
+  Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
@@ -31,6 +32,7 @@ const settingsNavigation = [
   { name: 'Tag Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
   { name: 'Priority Rules', href: '/settings/priority-rules', icon: Gauge, adminOnly: true },
   { name: 'Users', href: '/settings/users', icon: UserCog, adminOnly: true },
+  { name: 'Import from Gorgias', href: '/settings/import', icon: Upload, adminOnly: true },
 ];
 
 export function Sidebar() {

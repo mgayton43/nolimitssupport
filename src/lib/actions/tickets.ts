@@ -508,6 +508,8 @@ export async function searchTickets(
     snoozed_until: null,
     snoozed_by: null,
     merged_into_ticket_id: null,
+    external_id: null,
+    imported_at: null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     match_field: row.match_field as MatchField,

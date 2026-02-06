@@ -104,6 +104,8 @@ export interface Ticket {
   snoozed_until: string | null;
   snoozed_by: string | null;
   merged_into_ticket_id: string | null;
+  external_id: string | null;
+  imported_at: string | null;
   created_at: string;
   updated_at: string;
   customer?: Customer | null;
@@ -117,7 +119,7 @@ export interface TicketWithRelations extends Ticket {
   customer: Customer | null;
   assigned_agent: Profile | null;
   assigned_team: Team | null;
-  brand: Brand | null;
+  brand?: Brand | null;
   tags: Tag[];
   messages?: Message[];
 }
