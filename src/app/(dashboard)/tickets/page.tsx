@@ -280,7 +280,20 @@ export default async function TicketsPage({ searchParams }: PageProps) {
       </Header>
 
       <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
-        <TicketFilters agents={agents || []} brands={brands} />
+        <Suspense
+          fallback={
+            <div className="flex flex-wrap items-center gap-4">
+              <Skeleton className="h-10 w-64" />
+              <Skeleton className="h-10 w-32" />
+              <Skeleton className="h-10 w-32" />
+              <Skeleton className="h-10 w-40" />
+              <Skeleton className="h-10 w-36" />
+              <Skeleton className="h-10 w-36" />
+            </div>
+          }
+        >
+          <TicketFilters agents={agents || []} brands={brands} />
+        </Suspense>
       </div>
 
       <div className="flex-1 overflow-auto">
