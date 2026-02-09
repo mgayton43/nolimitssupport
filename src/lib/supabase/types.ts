@@ -106,6 +106,7 @@ export interface Ticket {
   merged_into_ticket_id: string | null;
   external_id: string | null;
   imported_at: string | null;
+  reference_id: string | null; // Email Message-ID for threading
   created_at: string;
   updated_at: string;
   customer?: Customer | null;
@@ -143,6 +144,7 @@ export interface Message {
   content: string;
   is_internal: boolean;
   source: MessageSource;
+  source_email_id: string | null; // Email Message-ID if message came from email
   attachments: Attachment[];
   created_at: string;
   sender?: Profile | Customer | null;

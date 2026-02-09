@@ -3,6 +3,14 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { sendMessageSchema, uuidSchema, type SendMessageInput } from '@/lib/validations';
+import {
+  sendEmail,
+  formatReplyAsHtml,
+  formatReplyAsText,
+  getBrandEmail,
+  generateReplySubject,
+} from '@/lib/email';
+import type { Brand } from '@/lib/supabase/types';
 
 export type SendAction = 'send' | 'send-close' | 'send-snooze';
 export type SnoozeDuration = '1-day' | '3-days' | '1-week';
@@ -57,6 +65,84 @@ export async function sendMessage(input: SendMessageOptions) {
 
   if (error) {
     return { error: 'Failed to send message' };
+  }
+
+  // Send email for non-internal messages on email-channel tickets
+  if (!parsed.data.isInternal) {
+    // Fetch ticket details to check channel and get email info
+    const { data: ticketData } = await supabase
+      .from('tickets')
+      .select(`
+        id,
+        ticket_number,
+        subject,
+        channel,
+        reference_id,
+        customer:customers(email, full_name),
+        brand:brands(id, name, email_address, color)
+      `)
+      .eq('id', parsed.data.ticketId)
+      .single();
+
+    // Normalize nested relations (Supabase may return arrays)
+    const ticket = ticketData
+      ? {
+          ...ticketData,
+          customer: Array.isArray(ticketData.customer)
+            ? ticketData.customer[0]
+            : ticketData.customer,
+          brand: Array.isArray(ticketData.brand)
+            ? ticketData.brand[0]
+            : ticketData.brand,
+        }
+      : null;
+
+    if (ticket?.channel === 'email' && ticket.customer?.email) {
+      // Get agent profile for the email signature
+      const { data: agentProfile } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', user.id)
+        .single();
+
+      const agentName = agentProfile?.full_name || agentProfile?.email || 'Support Team';
+      const fromEmail = getBrandEmail(ticket.brand as Brand | null);
+      const brandName = ticket.brand?.name || 'NoLimits Support';
+
+      // Generate email content
+      const htmlContent = formatReplyAsHtml(
+        parsed.data.content,
+        ticket.ticket_number,
+        agentName
+      );
+      const textContent = formatReplyAsText(parsed.data.content);
+      const subject = generateReplySubject(ticket.subject, ticket.ticket_number);
+
+      // Send the email
+      const emailResult = await sendEmail({
+        to: ticket.customer.email,
+        from: fromEmail,
+        fromName: brandName,
+        subject,
+        htmlContent,
+        textContent,
+        replyTo: fromEmail,
+        inReplyTo: ticket.reference_id || undefined,
+        references: ticket.reference_id || undefined,
+      });
+
+      if (emailResult.success && emailResult.messageId) {
+        // Update ticket reference_id for threading future replies
+        await supabase
+          .from('tickets')
+          .update({ reference_id: emailResult.messageId })
+          .eq('id', parsed.data.ticketId);
+
+        console.log('Email sent for ticket #', ticket.ticket_number);
+      } else {
+        console.error('Failed to send email:', emailResult.error);
+      }
+    }
   }
 
   // For non-internal replies, update ticket metadata
