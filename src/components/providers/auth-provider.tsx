@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
 import type { Profile } from '@/lib/supabase/types';
@@ -23,75 +23,128 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const supabase = createClient();
+
+  // Use ref to store supabase client so it doesn't change between renders
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
+
+  // Track if component is mounted to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+
+  // Fetch profile helper - memoized to prevent recreating on each render
+  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*, team:teams(*)')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Profile fetch error:', error.message);
+        return null;
+      }
+      return data;
+    } catch (err) {
+      // Ignore AbortError - happens when request is cancelled
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.log('Profile fetch aborted (component unmounted)');
+        return null;
+      }
+      console.error('Profile fetch exception:', err);
+      return null;
+    }
+  }, [supabase]);
 
   useEffect(() => {
-    const getUser = async () => {
-      try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
+    isMountedRef.current = true;
+    let isInitialLoad = true;
 
-        if (userError) {
-          console.error('Auth error:', userError);
-          setIsLoading(false);
+    const initializeAuth = async () => {
+      try {
+        console.log('AuthProvider: Initializing...');
+
+        const { data: { user }, error } = await supabase.auth.getUser();
+
+        if (error) {
+          // Ignore AbortError
+          if (error.message?.includes('AbortError') || error.name === 'AbortError') {
+            console.log('Auth getUser aborted');
+            return;
+          }
+          console.error('Auth getUser error:', error.message);
+          if (isMountedRef.current) {
+            setIsLoading(false);
+          }
           return;
         }
 
+        if (!isMountedRef.current) return;
+
+        console.log('AuthProvider: User loaded:', user?.email || 'none');
         setUser(user);
 
         if (user) {
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('*, team:teams(*)')
-            .eq('id', user.id)
-            .single();
-
-          if (profileError) {
-            console.error('Profile fetch error:', profileError);
-          } else {
-            setProfile(profile);
+          const profileData = await fetchProfile(user.id);
+          if (isMountedRef.current && profileData) {
+            console.log('AuthProvider: Profile loaded:', profileData.role);
+            setProfile(profileData);
           }
         }
       } catch (err) {
-        console.error('Auth provider error:', err);
+        // Ignore AbortError
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.log('Auth init aborted');
+          return;
+        }
+        console.error('Auth init error:', err);
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current && isInitialLoad) {
+          setIsLoading(false);
+          isInitialLoad = false;
+        }
       }
     };
 
-    getUser();
+    initializeAuth();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user ?? null);
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('AuthProvider: Auth state changed:', event);
 
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*, team:teams(*)')
-          .eq('id', session.user.id)
-          .single();
-        setProfile(profile);
-      } else {
-        setProfile(null);
+        if (!isMountedRef.current) return;
+
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+
+        if (currentUser) {
+          const profileData = await fetchProfile(currentUser.id);
+          if (isMountedRef.current && profileData) {
+            setProfile(profileData);
+          }
+        } else {
+          setProfile(null);
+        }
+
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
       }
-
-      setIsLoading(false);
-    });
+    );
 
     return () => {
+      console.log('AuthProvider: Cleaning up...');
+      isMountedRef.current = false;
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [supabase, fetchProfile]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
-  };
+  }, [supabase]);
 
   return (
     <AuthContext.Provider value={{ user, profile, isLoading, signOut }}>
