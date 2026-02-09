@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/header';
 import { TicketDetail } from '@/components/tickets/ticket-detail';
 import { TicketSidebar } from '@/components/tickets/ticket-sidebar';
 import { TicketActions } from '@/components/tickets/ticket-actions';
+import { TicketTagsBar } from '@/components/tickets/ticket-tags-bar';
 import { ChannelIcon } from '@/components/tickets/channel-icon';
 import { BrandBadge } from '@/components/ui/brand-badge';
 import { Merge } from 'lucide-react';
@@ -192,6 +193,9 @@ export default async function TicketDetailPage({ params }: PageProps) {
         </div>
       )}
 
+      {/* Tags bar - inline tags with add button */}
+      <TicketTagsBar ticketId={ticket.id} tags={tags} allTags={allTags} />
+
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto">
           <TicketDetail
@@ -206,7 +210,6 @@ export default async function TicketDetailPage({ params }: PageProps) {
             ticket={{ ...ticket, tags, customer: ticket.customer }}
             agents={agents}
             teams={teams}
-            allTags={allTags}
             activities={activities}
             customerTicketCount={customerTicketCount}
           />

@@ -2,7 +2,6 @@
 
 import { useTransition } from 'react';
 import { Avatar } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -10,20 +9,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { StatusBadge } from './status-badge';
 import { PriorityBadge } from './priority-badge';
 import { TicketActivityLog } from './ticket-activity-log';
 import { OrderHistory } from './order-history';
 import {
-  updateTicketStatus,
   updateTicketPriority,
   assignTicket,
   assignTicketToTeam,
-  addTagToTicket,
-  removeTagFromTicket,
 } from '@/lib/actions/tickets';
 import { getInitials, formatDate } from '@/lib/utils';
-import { User, Users, Tag as TagIcon, Clock, X, Mail, Phone, ExternalLink, Ticket as TicketIcon } from 'lucide-react';
+import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon } from 'lucide-react';
 import Link from 'next/link';
 import type {
   Ticket,
@@ -31,7 +26,6 @@ import type {
   Team,
   Tag,
   TicketActivity,
-  TicketStatus,
   TicketPriority,
   Customer,
 } from '@/lib/supabase/types';
@@ -40,7 +34,6 @@ interface TicketSidebarProps {
   ticket: Ticket & { tags: Tag[]; customer: Customer | null };
   agents: Profile[];
   teams: Team[];
-  allTags: Tag[];
   activities: (TicketActivity & { actor: Pick<Profile, 'full_name' | 'avatar_url'> | null })[];
   customerTicketCount?: number;
 }
@@ -49,17 +42,10 @@ export function TicketSidebar({
   ticket,
   agents,
   teams,
-  allTags,
   activities,
   customerTicketCount,
 }: TicketSidebarProps) {
   const [isPending, startTransition] = useTransition();
-
-  const handleStatusChange = (status: TicketStatus) => {
-    startTransition(async () => {
-      await updateTicketStatus(ticket.id, status);
-    });
-  };
 
   const handlePriorityChange = (priority: TicketPriority) => {
     startTransition(async () => {
@@ -78,21 +64,6 @@ export function TicketSidebar({
       await assignTicketToTeam(ticket.id, teamId === 'none' ? null : teamId);
     });
   };
-
-  const handleAddTag = (tagId: string) => {
-    if (tagId === 'none') return;
-    startTransition(async () => {
-      await addTagToTicket(ticket.id, tagId);
-    });
-  };
-
-  const handleRemoveTag = (tagId: string) => {
-    startTransition(async () => {
-      await removeTagFromTicket(ticket.id, tagId);
-    });
-  };
-
-  const availableTags = allTags.filter((t) => !ticket.tags.some((tt) => tt.id === t.id));
 
   return (
     <div className="p-4 space-y-6">
@@ -148,25 +119,6 @@ export function TicketSidebar({
           </div>
         </div>
       )}
-
-      {/* Status */}
-      <div className="space-y-2">
-        <label className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-          Status
-        </label>
-        <Select value={ticket.status} onValueChange={handleStatusChange} disabled={isPending}>
-          <SelectTrigger>
-            <SelectValue>
-              <StatusBadge status={ticket.status} />
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
 
       {/* Priority */}
       <div className="space-y-2">
@@ -244,51 +196,6 @@ export function TicketSidebar({
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      {/* Tags */}
-      <div className="space-y-2">
-        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-          <TagIcon className="h-3.5 w-3.5" />
-          Tags
-        </label>
-        <div className="flex flex-wrap gap-1.5">
-          {ticket.tags.map((tag) => (
-            <Badge
-              key={tag.id}
-              variant="secondary"
-              className="group cursor-pointer pr-1"
-              style={{ backgroundColor: `${tag.color}20`, borderColor: tag.color }}
-              onClick={() => handleRemoveTag(tag.id)}
-            >
-              {tag.name}
-              <X className="ml-1 h-3 w-3 opacity-50 group-hover:opacity-100" />
-            </Badge>
-          ))}
-        </div>
-        {availableTags.length > 0 && (
-          <Select value="none" onValueChange={handleAddTag} disabled={isPending}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Add tag..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none" disabled>
-                Add tag...
-              </SelectItem>
-              {availableTags.map((tag) => (
-                <SelectItem key={tag.id} value={tag.id}>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="h-3 w-3 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    {tag.name}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
       </div>
 
       {/* Timestamps */}
