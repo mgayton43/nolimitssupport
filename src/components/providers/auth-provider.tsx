@@ -33,18 +33,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch profile helper - memoized to prevent recreating on each render
   const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+    console.log('AuthProvider: Fetching profile for userId:', userId);
     try {
-      const { data, error } = await supabase
+      const { data, error, status } = await supabase
         .from('profiles')
         .select('*, team:teams(*)')
         .eq('id', userId)
         .single();
 
       if (error) {
-        console.error('Profile fetch error:', error.message);
+        console.error('Profile fetch error:', error.message, 'code:', error.code, 'details:', error.details);
         return null;
       }
-      return data;
+
+      console.log('AuthProvider: Profile fetched successfully, role:', (data as Profile)?.role);
+      return data as Profile;
     } catch (err) {
       // Ignore AbortError - happens when request is cancelled
       if (err instanceof Error && err.name === 'AbortError') {
@@ -62,9 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        console.log('AuthProvider: Initializing...');
+        console.log('AuthProvider: Initializing auth...');
 
-        const { data: { user }, error } = await supabase.auth.getUser();
+        const { data, error } = await supabase.auth.getUser();
+        const user = data?.user ?? null;
+
+        console.log('AuthProvider: getUser result - hasUser:', !!user, 'email:', user?.email, 'error:', error?.message || 'none');
 
         if (error) {
           // Ignore AbortError
@@ -72,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('Auth getUser aborted');
             return;
           }
-          console.error('Auth getUser error:', error.message);
+          console.error('Auth getUser error:', error.message, 'status:', error.status);
           if (isMountedRef.current) {
             setIsLoading(false);
           }
@@ -81,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!isMountedRef.current) return;
 
-        console.log('AuthProvider: User loaded:', user?.email || 'none');
+        console.log('AuthProvider: Setting user state:', user?.email || 'null');
         setUser(user);
 
         if (user) {
