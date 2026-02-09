@@ -2,8 +2,21 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  // Skip middleware for API routes - they handle their own auth
-  if (request.nextUrl.pathname.startsWith('/api/')) {
+  const pathname = request.nextUrl.pathname;
+
+  // CRITICAL: Skip ALL API routes immediately - no auth check needed
+  // Check for both /api and /api/ patterns
+  if (pathname.startsWith('/api')) {
+    console.log('[Middleware] Allowing API route through:', pathname);
+    return NextResponse.next();
+  }
+
+  // Skip static files and images
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon') ||
+    pathname.match(/\.(svg|png|jpg|jpeg|gif|webp|ico)$/)
+  ) {
     return NextResponse.next();
   }
 
@@ -38,11 +51,12 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAuthPage = request.nextUrl.pathname.startsWith('/login');
-  const isPublicPage = request.nextUrl.pathname === '/';
+  const isAuthPage = pathname.startsWith('/login');
+  const isPublicPage = pathname === '/';
 
   // Redirect unauthenticated users to login
   if (!user && !isAuthPage) {
+    console.log('[Middleware] Redirecting to login:', pathname);
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
@@ -68,13 +82,12 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - images and other static assets
-     * - api routes (handled separately)
+     * Only match paths that need auth protection.
+     * Explicitly EXCLUDE:
+     * - /api/* (all API routes)
+     * - /_next/* (Next.js internals)
+     * - Static files
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };
