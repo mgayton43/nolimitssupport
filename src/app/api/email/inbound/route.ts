@@ -220,19 +220,40 @@ export async function POST(request: NextRequest) {
     try {
       formData = await request.formData();
       console.log('FormData parsed successfully');
-      console.log('FormData keys:', Array.from(formData.keys()));
+
+      // Log ALL form data keys and values for debugging
+      console.log('=== ALL FORM DATA FIELDS ===');
+      for (const [key, value] of formData.entries()) {
+        const valueStr = typeof value === 'string' ? value : `[File: ${(value as File).name}]`;
+        const truncated = valueStr.length > 200 ? valueStr.substring(0, 200) + '...' : valueStr;
+        console.log(`  ${key}: ${truncated}`);
+      }
+      console.log('=== END FORM DATA FIELDS ===');
     } catch (parseError) {
       console.error('Failed to parse formData:', parseError);
       // Try to read as text to see what we received
       try {
         const clonedRequest = request.clone();
         const rawBody = await clonedRequest.text();
-        console.log('Raw body (first 500 chars):', rawBody.substring(0, 500));
+        console.log('Raw body (first 1000 chars):', rawBody.substring(0, 1000));
       } catch {
         console.log('Could not read raw body');
       }
       return NextResponse.json({ error: 'Invalid request format' }, { status: 400 });
     }
+
+    // Get raw values for debugging
+    const rawText = formData.get('text');
+    const rawHtml = formData.get('html');
+    const rawEmail = formData.get('email');
+    const rawBody = formData.get('body');
+
+    console.log('=== RAW CONTENT FIELDS ===');
+    console.log('  text type:', typeof rawText, 'value:', rawText ? String(rawText).substring(0, 100) : 'NULL');
+    console.log('  html type:', typeof rawHtml, 'value:', rawHtml ? String(rawHtml).substring(0, 100) : 'NULL');
+    console.log('  email type:', typeof rawEmail, 'value:', rawEmail ? String(rawEmail).substring(0, 100) : 'NULL');
+    console.log('  body type:', typeof rawBody, 'value:', rawBody ? String(rawBody).substring(0, 100) : 'NULL');
+    console.log('=== END RAW CONTENT FIELDS ===');
 
     const data: InboundEmailData = {
       from: formData.get('from') as string || '',
@@ -250,8 +271,8 @@ export async function POST(request: NextRequest) {
     console.log('  From:', data.from);
     console.log('  To:', data.to);
     console.log('  Subject:', data.subject);
-    console.log('  Has text:', !!data.text);
-    console.log('  Has html:', !!data.html);
+    console.log('  Text content:', data.text ? data.text.substring(0, 200) : 'EMPTY');
+    console.log('  HTML content:', data.html ? data.html.substring(0, 200) : 'EMPTY');
     console.log('  Attachments:', data.attachments);
 
     // Validate required fields
@@ -269,8 +290,17 @@ export async function POST(request: NextRequest) {
     console.log('Email headers:', headers);
 
     // Get the email content (prefer text over html for storage)
+    // Also check 'email' and 'body' fields as fallbacks
     const emailContent = data.text ||
-      (data.html ? data.html.replace(/<[^>]*>/g, '') : '(No content)');
+      (data.html ? data.html.replace(/<[^>]*>/g, '') : null) ||
+      (formData.get('email') as string) ||
+      (formData.get('body') as string) ||
+      '(No content)';
+
+    console.log('=== FINAL EMAIL CONTENT ===');
+    console.log('Content length:', emailContent.length);
+    console.log('Content preview:', emailContent.substring(0, 300));
+    console.log('=== END FINAL EMAIL CONTENT ===');
 
     // Determine brand from recipient email
     const toEmail = data.to.includes(',') ? data.to.split(',')[0] : data.to;
