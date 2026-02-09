@@ -290,11 +290,12 @@ export async function POST(request: NextRequest) {
     console.log('Email headers:', headers);
 
     // Get the email content (prefer text over html for storage)
-    // Also check 'email' and 'body' fields as fallbacks
-    const emailContent = data.text ||
-      (data.html ? data.html.replace(/<[^>]*>/g, '') : null) ||
-      (formData.get('email') as string) ||
-      (formData.get('body') as string) ||
+    // Also check 'email' and 'body' fields as fallbacks (using rawEmail/rawBody from above)
+    const emailContent: string =
+      (data.text && data.text.trim()) ||
+      (data.html ? data.html.replace(/<[^>]*>/g, '').trim() : '') ||
+      (typeof rawEmail === 'string' ? rawEmail.trim() : '') ||
+      (typeof rawBody === 'string' ? rawBody.trim() : '') ||
       '(No content)';
 
     console.log('=== FINAL EMAIL CONTENT ===');
