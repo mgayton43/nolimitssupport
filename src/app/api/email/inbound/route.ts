@@ -2,11 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { parseEmailAddress, getBrandIdFromEmail } from '@/lib/email';
 
-// Use service role client for API routes (no RLS)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Check environment variables
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Create Supabase client lazily to catch missing env vars
+function getSupabaseClient() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error('Missing Supabase environment variables:', {
+      hasUrl: !!SUPABASE_URL,
+      hasServiceKey: !!SUPABASE_SERVICE_KEY,
+    });
+    throw new Error('Missing Supabase configuration');
+  }
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+}
 
 interface InboundEmailData {
   from: string;
@@ -51,6 +61,8 @@ function parseEmailHeaders(headersString: string): {
  * Find existing ticket by reference IDs (for email threading)
  */
 async function findTicketByReference(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
   customerEmail: string,
   references: string | null,
   inReplyTo: string | null
@@ -95,7 +107,8 @@ async function findTicketByReference(
 /**
  * Get or create customer by email
  */
-async function getOrCreateCustomer(email: string, name: string | null): Promise<string> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getOrCreateCustomer(supabase: any, email: string, name: string | null): Promise<string> {
   // Try to find existing customer
   const { data: existing } = await supabase
     .from('customers')
@@ -127,7 +140,8 @@ async function getOrCreateCustomer(email: string, name: string | null): Promise<
 /**
  * Apply auto-tagging rules to a ticket
  */
-async function applyAutoTagRules(ticketId: string, subject: string, body: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applyAutoTagRules(supabase: any, ticketId: string, subject: string, body: string) {
   try {
     const { data, error } = await supabase.rpc('apply_auto_tags', {
       p_ticket_id: ticketId,
@@ -148,7 +162,8 @@ async function applyAutoTagRules(ticketId: string, subject: string, body: string
 /**
  * Apply auto-priority rules to a ticket
  */
-async function applyAutoPriorityRules(ticketId: string, subject: string, body: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applyAutoPriorityRules(supabase: any, ticketId: string, subject: string, body: string) {
   try {
     // Get active priority rules
     const { data: rules } = await supabase
@@ -189,11 +204,36 @@ async function applyAutoPriorityRules(ticketId: string, subject: string, body: s
 }
 
 export async function POST(request: NextRequest) {
+  console.log('=== INBOUND EMAIL WEBHOOK START ===');
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('Request URL:', request.url);
+  console.log('Request method:', request.method);
+  console.log('Content-Type:', request.headers.get('content-type'));
+
   try {
-    console.log('Inbound email webhook received');
+    // Get Supabase client (will throw if env vars missing)
+    const supabase = getSupabaseClient();
+    console.log('Supabase client initialized');
 
     // Parse form data from SendGrid
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+      console.log('FormData parsed successfully');
+      console.log('FormData keys:', Array.from(formData.keys()));
+    } catch (parseError) {
+      console.error('Failed to parse formData:', parseError);
+      // Try to read as text to see what we received
+      try {
+        const clonedRequest = request.clone();
+        const rawBody = await clonedRequest.text();
+        console.log('Raw body (first 500 chars):', rawBody.substring(0, 500));
+      } catch {
+        console.log('Could not read raw body');
+      }
+      return NextResponse.json({ error: 'Invalid request format' }, { status: 400 });
+    }
+
     const data: InboundEmailData = {
       from: formData.get('from') as string || '',
       to: formData.get('to') as string || '',
@@ -206,9 +246,19 @@ export async function POST(request: NextRequest) {
       'attachment-info': formData.get('attachment-info') as string || undefined,
     };
 
-    console.log('Email from:', data.from);
-    console.log('Email to:', data.to);
-    console.log('Subject:', data.subject);
+    console.log('Parsed email data:');
+    console.log('  From:', data.from);
+    console.log('  To:', data.to);
+    console.log('  Subject:', data.subject);
+    console.log('  Has text:', !!data.text);
+    console.log('  Has html:', !!data.html);
+    console.log('  Attachments:', data.attachments);
+
+    // Validate required fields
+    if (!data.from) {
+      console.error('Missing required field: from');
+      return NextResponse.json({ error: 'Missing sender' }, { status: 400 });
+    }
 
     // Parse sender email
     const { email: customerEmail, name: customerName } = parseEmailAddress(data.from);
@@ -230,6 +280,7 @@ export async function POST(request: NextRequest) {
 
     // Check for existing ticket (threading)
     const existingTicket = await findTicketByReference(
+      supabase,
       customerEmail,
       headers.references,
       headers.inReplyTo
@@ -240,7 +291,7 @@ export async function POST(request: NextRequest) {
       console.log('Adding to existing ticket:', existingTicket.ticket_number);
 
       // Get customer ID
-      const customerId = await getOrCreateCustomer(customerEmail, customerName);
+      const customerId = await getOrCreateCustomer(supabase, customerEmail, customerName);
 
       // Create message
       const { error: messageError } = await supabase
@@ -279,6 +330,7 @@ export async function POST(request: NextRequest) {
       }
 
       console.log('Message added to ticket #', existingTicket.ticket_number);
+      console.log('=== INBOUND EMAIL WEBHOOK SUCCESS: message_added ===');
 
       return NextResponse.json({
         success: true,
@@ -290,7 +342,7 @@ export async function POST(request: NextRequest) {
       console.log('Creating new ticket');
 
       // Get or create customer
-      const customerId = await getOrCreateCustomer(customerEmail, customerName);
+      const customerId = await getOrCreateCustomer(supabase, customerEmail, customerName);
 
       // Create ticket
       const { data: ticket, error: ticketError } = await supabase
@@ -333,13 +385,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Apply auto-tagging rules
-      await applyAutoTagRules(ticket.id, data.subject, emailContent);
+      await applyAutoTagRules(supabase, ticket.id, data.subject, emailContent);
 
       // Apply auto-priority rules
-      await applyAutoPriorityRules(ticket.id, data.subject, emailContent);
+      await applyAutoPriorityRules(supabase, ticket.id, data.subject, emailContent);
 
       console.log('Ticket created successfully: #', ticket.ticket_number);
 
+      console.log('=== INBOUND EMAIL WEBHOOK SUCCESS: ticket_created ===');
       return NextResponse.json({
         success: true,
         action: 'ticket_created',
@@ -347,10 +400,16 @@ export async function POST(request: NextRequest) {
       });
     }
   } catch (err) {
-    console.error('Inbound email error:', err);
+    console.error('=== INBOUND EMAIL WEBHOOK ERROR ===');
+    console.error('Error type:', err instanceof Error ? err.constructor.name : typeof err);
+    console.error('Error message:', err instanceof Error ? err.message : String(err));
+    console.error('Error stack:', err instanceof Error ? err.stack : 'no stack');
+
+    // Return 200 to prevent SendGrid from retrying (we log the error for debugging)
+    // Change to 500 if you want SendGrid to retry on errors
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { error: 'Internal server error', logged: true },
+      { status: 200 }  // Return 200 to acknowledge receipt even on error
     );
   }
 }
