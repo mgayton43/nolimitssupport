@@ -1,6 +1,6 @@
 'use client';
 
-import dynamic from 'next/dynamic';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -18,12 +18,11 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
+import { TicketViews } from './ticket-views';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// Dynamic import with loading skeleton to handle useSearchParams Suspense requirement
-const TicketViews = dynamic(() => import('./ticket-views').then(mod => mod.TicketViews), {
-  ssr: false,
-  loading: () => (
+function TicketViewsSkeleton() {
+  return (
     <div className="space-y-1">
       <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
         Tickets
@@ -35,8 +34,8 @@ const TicketViews = dynamic(() => import('./ticket-views').then(mod => mod.Ticke
         </div>
       ))}
     </div>
-  ),
-});
+  );
+}
 
 const navigation = [
   { name: 'Customers', href: '/customers', icon: Users },
@@ -72,7 +71,9 @@ export function Sidebar() {
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {/* Ticket Views */}
-        <TicketViews />
+        <Suspense fallback={<TicketViewsSkeleton />}>
+          <TicketViews />
+        </Suspense>
 
         {/* Other Navigation */}
         <div className="mb-2 mt-6 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
