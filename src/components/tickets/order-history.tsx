@@ -17,19 +17,97 @@ const financialStatusColors: Record<string, string> = {
   voided: 'text-zinc-500 dark:text-zinc-400',
 };
 
-const fulfillmentStatusLabels: Record<string, string> = {
-  fulfilled: 'Fulfilled',
-  partial: 'Partially Fulfilled',
-  unfulfilled: 'Unfulfilled',
-  null: 'Unfulfilled',
+// Order status configuration with labels and colors
+type OrderDisplayStatus =
+  | 'cancelled'
+  | 'refunded'
+  | 'delivered'
+  | 'in_transit'
+  | 'out_for_delivery'
+  | 'fulfilled'
+  | 'partial'
+  | 'unfulfilled';
+
+const orderStatusConfig: Record<OrderDisplayStatus, { label: string; className: string }> = {
+  cancelled: {
+    label: 'Cancelled',
+    className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  },
+  refunded: {
+    label: 'Refunded',
+    className: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300',
+  },
+  delivered: {
+    label: 'Delivered',
+    className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  },
+  in_transit: {
+    label: 'In Transit',
+    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  out_for_delivery: {
+    label: 'Out for Delivery',
+    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  fulfilled: {
+    label: 'Fulfilled',
+    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  partial: {
+    label: 'Partially Fulfilled',
+    className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  },
+  unfulfilled: {
+    label: 'Unfulfilled',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  },
 };
 
-const fulfillmentStatusColors: Record<string, string> = {
-  fulfilled: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  partial: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  unfulfilled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400',
-  null: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400',
-};
+/**
+ * Determine the display status based on order data
+ * Priority: Cancelled > Refunded > Shipment Status > Fulfillment Status
+ */
+function getOrderDisplayStatus(order: {
+  cancelledAt: string | null;
+  financialStatus: string;
+  fulfillmentStatus: string | null;
+  tracking: { shipmentStatus: string | null } | null;
+}): OrderDisplayStatus {
+  // Check if cancelled
+  if (order.cancelledAt) {
+    return 'cancelled';
+  }
+
+  // Check if refunded
+  if (order.financialStatus === 'refunded') {
+    return 'refunded';
+  }
+
+  // Check shipment status from tracking
+  if (order.tracking?.shipmentStatus) {
+    const shipmentStatus = order.tracking.shipmentStatus.toLowerCase();
+    if (shipmentStatus === 'delivered') {
+      return 'delivered';
+    }
+    if (shipmentStatus === 'in_transit' || shipmentStatus === 'in transit') {
+      return 'in_transit';
+    }
+    if (shipmentStatus === 'out_for_delivery' || shipmentStatus === 'out for delivery') {
+      return 'out_for_delivery';
+    }
+  }
+
+  // Fall back to fulfillment status
+  const fulfillmentStatus = order.fulfillmentStatus || 'unfulfilled';
+  if (fulfillmentStatus === 'fulfilled') {
+    return 'fulfilled';
+  }
+  if (fulfillmentStatus === 'partial') {
+    return 'partial';
+  }
+
+  return 'unfulfilled';
+}
 
 function formatCurrency(amount: string, currency: string): string {
   const num = parseFloat(amount);
@@ -146,7 +224,8 @@ export function OrderHistory({ customerEmail }: OrderHistoryProps) {
           <div className="space-y-2">
             {data.orders.slice(0, 5).map((order) => {
               const isExpanded = expandedOrders.has(order.id);
-              const fulfillmentKey = order.fulfillmentStatus || 'null';
+              const displayStatus = getOrderDisplayStatus(order);
+              const statusConfig = orderStatusConfig[displayStatus];
 
               return (
                 <div
@@ -177,8 +256,8 @@ export function OrderHistory({ customerEmail }: OrderHistoryProps) {
                     <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                       <span>{formatDate(order.createdAt)}</span>
                       <span>·</span>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${fulfillmentStatusColors[fulfillmentKey]}`}>
-                        {fulfillmentStatusLabels[fulfillmentKey]}
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${statusConfig.className}`}>
+                        {statusConfig.label}
                       </span>
                     </div>
                   </button>
@@ -210,21 +289,45 @@ export function OrderHistory({ customerEmail }: OrderHistoryProps) {
 
                       {/* Tracking info */}
                       {order.tracking && order.tracking.number && (
-                        <div className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300 mb-2">
-                          <Truck className="h-3.5 w-3.5" />
-                          {order.tracking.url ? (
+                        <div className="mb-2 rounded-md bg-zinc-100 dark:bg-zinc-800 p-2 space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200">
+                            <Truck className="h-3.5 w-3.5" />
+                            Tracking Information
+                          </div>
+                          <div className="grid gap-1 text-xs">
+                            {order.tracking.company && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-zinc-500 dark:text-zinc-400">Carrier:</span>
+                                <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                                  {order.tracking.company}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <span className="text-zinc-500 dark:text-zinc-400">Tracking #:</span>
+                              <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                                {order.tracking.number}
+                              </span>
+                            </div>
+                            {order.tracking.shipmentStatus && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-zinc-500 dark:text-zinc-400">Status:</span>
+                                <span className="font-medium text-zinc-700 dark:text-zinc-200 capitalize">
+                                  {order.tracking.shipmentStatus.replace(/_/g, ' ')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          {order.tracking.url && (
                             <a
                               href={order.tracking.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline dark:text-blue-400"
+                              className="flex items-center justify-center gap-1.5 mt-2 py-1.5 px-3 rounded bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors"
                             >
-                              {order.tracking.company || 'Track'}: {order.tracking.number}
+                              <ExternalLink className="h-3 w-3" />
+                              Track Package
                             </a>
-                          ) : (
-                            <span>
-                              {order.tracking.company}: {order.tracking.number}
-                            </span>
                           )}
                         </div>
                       )}

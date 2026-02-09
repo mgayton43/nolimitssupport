@@ -17,6 +17,7 @@ export interface ShopifyOrder {
   order_number: number;
   name: string; // e.g., "#1001"
   created_at: string;
+  cancelled_at: string | null;
   financial_status: string;
   fulfillment_status: string | null;
   total_price: string;
@@ -38,6 +39,7 @@ export interface ShopifyLineItem {
 export interface ShopifyFulfillment {
   id: number;
   status: string;
+  shipment_status: string | null; // 'in_transit', 'delivered', 'out_for_delivery', etc.
   tracking_number: string | null;
   tracking_url: string | null;
   tracking_company: string | null;

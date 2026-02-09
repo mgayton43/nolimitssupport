@@ -15,6 +15,7 @@ export interface OrderHistoryResult {
     orderNumber: number;
     name: string;
     createdAt: string;
+    cancelledAt: string | null;
     financialStatus: string;
     fulfillmentStatus: string | null;
     totalPrice: string;
@@ -32,6 +33,7 @@ export interface OrderHistoryResult {
       number: string | null;
       url: string | null;
       company: string | null;
+      shipmentStatus: string | null;
     } | null;
   }[];
   error?: string;
@@ -69,11 +71,17 @@ export async function fetchCustomerOrderHistory(email: string): Promise<OrderHis
       (f) => f.tracking_number || f.tracking_url
     );
 
+    // Get the shipment status from any fulfillment (prefer one with shipment_status)
+    const fulfillmentWithShipmentStatus = order.fulfillments?.find(
+      (f) => f.shipment_status
+    ) || fulfillmentWithTracking;
+
     return {
       id: order.id,
       orderNumber: order.order_number,
       name: order.name,
       createdAt: order.created_at,
+      cancelledAt: order.cancelled_at,
       financialStatus: order.financial_status,
       fulfillmentStatus: order.fulfillment_status,
       totalPrice: order.total_price,
@@ -92,6 +100,7 @@ export async function fetchCustomerOrderHistory(email: string): Promise<OrderHis
             number: fulfillmentWithTracking.tracking_number,
             url: fulfillmentWithTracking.tracking_url,
             company: fulfillmentWithTracking.tracking_company,
+            shipmentStatus: fulfillmentWithShipmentStatus?.shipment_status || null,
           }
         : null,
     };
