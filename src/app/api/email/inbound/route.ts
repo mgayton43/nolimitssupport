@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { parseEmailAddress, getBrandIdFromEmail } from '@/lib/email';
+import { parseEmailAddress, getBrandIdFromEmail, extractNewEmailContent } from '@/lib/email';
 
 // Check environment variables
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -289,19 +289,27 @@ export async function POST(request: NextRequest) {
     const headers = parseEmailHeaders(data.headers || '');
     console.log('Email headers:', headers);
 
-    // Get the email content (prefer text over html for storage)
+    // Get the raw email content (prefer text over html for storage)
     // Also check 'email' and 'body' fields as fallbacks (using rawEmail/rawBody from above)
-    const emailContent: string =
+    const rawEmailContent: string =
       (data.text && data.text.trim()) ||
       (data.html ? data.html.replace(/<[^>]*>/g, '').trim() : '') ||
       (typeof rawEmail === 'string' ? rawEmail.trim() : '') ||
       (typeof rawBody === 'string' ? rawBody.trim() : '') ||
-      '(No content)';
+      '';
 
-    console.log('=== FINAL EMAIL CONTENT ===');
-    console.log('Content length:', emailContent.length);
-    console.log('Content preview:', emailContent.substring(0, 300));
-    console.log('=== END FINAL EMAIL CONTENT ===');
+    console.log('=== RAW EMAIL CONTENT ===');
+    console.log('Raw content length:', rawEmailContent.length);
+    console.log('Raw content preview:', rawEmailContent.substring(0, 500));
+    console.log('=== END RAW EMAIL CONTENT ===');
+
+    // Extract only the NEW content (strip quoted text, signatures, etc.)
+    const emailContent = extractNewEmailContent(rawEmailContent);
+
+    console.log('=== EXTRACTED EMAIL CONTENT ===');
+    console.log('Extracted content length:', emailContent.length);
+    console.log('Extracted content:', emailContent.substring(0, 500));
+    console.log('=== END EXTRACTED EMAIL CONTENT ===');
 
     // Determine brand from recipient email
     const toEmail = data.to.includes(',') ? data.to.split(',')[0] : data.to;

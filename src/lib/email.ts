@@ -209,6 +209,144 @@ export async function getBrandIdFromEmail(
 }
 
 /**
+ * Extract only the NEW content from an email reply by stripping:
+ * - Quoted content (lines starting with >)
+ * - "On [date], [person] wrote:" sections
+ * - Forwarded email headers
+ * - Original message separators
+ * - Email signatures
+ */
+export function extractNewEmailContent(rawContent: string): string {
+  if (!rawContent || !rawContent.trim()) {
+    return '(No content)';
+  }
+
+  let content = rawContent;
+
+  // Patterns that indicate the start of quoted/old content (everything after is removed)
+  const cutoffPatterns = [
+    // Gmail: "On Mon, Feb 9, 2026 at 11:19 PM, Name <email> wrote:"
+    /\nOn\s+\w{3},\s+\w{3}\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<]*<[^>]+>\s*wrote:/gi,
+    // Gmail simplified: "On Feb 9, 2026, at 11:19 PM, Name wrote:"
+    /\nOn\s+\w{3}\s+\d{1,2},\s+\d{4},?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^:]+wrote:/gi,
+    // Outlook: "On [date] [time], [person] wrote:"
+    /\nOn\s+\d{1,2}\/\d{1,2}\/\d{2,4}[^:]*wrote:/gi,
+    // Generic: "On [any date format], [person] wrote:"
+    /\n[-_]*\s*On\s+.{10,60}\s+wrote:\s*\n/gi,
+    // "-------- Original Message --------"
+    /\n-{3,}\s*Original Message\s*-{3,}/gi,
+    // "---------- Forwarded message ----------"
+    /\n-{3,}\s*Forwarded message\s*-{3,}/gi,
+    // Outlook forwarded headers block: "From: ... Sent: ... To: ... Subject: ..."
+    /\nFrom:\s*[^\n]+\nSent:\s*[^\n]+\nTo:\s*[^\n]+\nSubject:\s*/gi,
+    // "From: Name" at start of line followed by date headers
+    /\nFrom:\s*[^\n]+\n(?:Date|Sent):\s*[^\n]+\n/gi,
+    // Apple Mail: "Begin forwarded message:"
+    /\nBegin forwarded message:/gi,
+    // Generic reply separator
+    /\n_{5,}\n/g,
+    /\n-{5,}\n/g,
+  ];
+
+  // Find the earliest cutoff point
+  let earliestCutoff = content.length;
+  for (const pattern of cutoffPatterns) {
+    const match = content.match(pattern);
+    if (match && match.index !== undefined && match.index < earliestCutoff) {
+      earliestCutoff = match.index;
+    }
+  }
+
+  // Cut content at the earliest separator
+  if (earliestCutoff < content.length) {
+    content = content.substring(0, earliestCutoff);
+  }
+
+  // Remove quoted lines (starting with >)
+  const lines = content.split('\n');
+  const cleanedLines: string[] = [];
+  let consecutiveQuotedLines = 0;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    // Check if line starts with quote marker
+    if (trimmedLine.startsWith('>')) {
+      consecutiveQuotedLines++;
+      // If we've seen multiple quoted lines, definitely skip
+      // But allow a single > if it might be used for something else
+      if (consecutiveQuotedLines > 1 || trimmedLine.startsWith('>>')) {
+        continue;
+      }
+      // Check if it looks like a quote (has text after >)
+      const afterQuote = trimmedLine.replace(/^>+\s*/, '');
+      if (afterQuote.length > 0) {
+        continue;
+      }
+    } else {
+      consecutiveQuotedLines = 0;
+    }
+
+    cleanedLines.push(line);
+  }
+
+  content = cleanedLines.join('\n');
+
+  // Email signature patterns - look for these and remove everything after
+  const signaturePatterns = [
+    // "-- " (standard email signature delimiter - two dashes and space)
+    /\n--\s*\n/,
+    // "Sent from my iPhone/Android/etc"
+    /\n\s*Sent from my (?:iPhone|iPad|Android|Samsung|Galaxy|mobile device|phone)[^\n]*/i,
+    // "Get Outlook for iOS/Android"
+    /\n\s*Get Outlook for (?:iOS|Android)[^\n]*/i,
+  ];
+
+  for (const pattern of signaturePatterns) {
+    const match = content.match(pattern);
+    if (match && match.index !== undefined) {
+      content = content.substring(0, match.index);
+    }
+  }
+
+  // Soft signature patterns - only cut if followed by what looks like a name/signature
+  const softSignaturePatterns = [
+    // "Thanks," / "Thank you," / "Best," / "Regards," etc. followed by a short line (name)
+    /\n\s*(Thanks|Thank you|Best|Best regards|Regards|Cheers|Sincerely|Best wishes|Kind regards|Warm regards),?\s*\n\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s*$/i,
+  ];
+
+  for (const pattern of softSignaturePatterns) {
+    const match = content.match(pattern);
+    if (match && match.index !== undefined) {
+      content = content.substring(0, match.index);
+    }
+  }
+
+  // Clean up excessive whitespace
+  content = content
+    // Multiple blank lines to single blank line
+    .replace(/\n{3,}/g, '\n\n')
+    // Trim each line
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    // Trim overall
+    .trim();
+
+  // If we stripped everything, return a minimal version
+  if (!content) {
+    // Try to extract at least something from the original
+    const firstLine = rawContent.split('\n')[0]?.trim();
+    if (firstLine && !firstLine.startsWith('>')) {
+      return firstLine;
+    }
+    return '(Reply with no new content)';
+  }
+
+  return content;
+}
+
+/**
  * Parse email address from a "Name <email>" format
  */
 export function parseEmailAddress(input: string): { email: string; name: string | null } {
