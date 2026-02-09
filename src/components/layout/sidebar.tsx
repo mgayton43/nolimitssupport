@@ -55,7 +55,7 @@ const settingsNavigation = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { profile } = useAuth();
+  const { profile, isLoading } = useAuth();
   const isAdmin = profile?.role === 'admin';
 
   return (
@@ -123,15 +123,28 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">
-          Logged in as{' '}
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            {profile?.full_name || profile?.email}
-          </span>
-        </div>
-        <div className="mt-1 text-xs capitalize text-zinc-500 dark:text-zinc-400">
-          {profile?.role}
-        </div>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+        ) : profile ? (
+          <>
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              Logged in as{' '}
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                {profile.full_name || profile.email}
+              </span>
+            </div>
+            <div className="mt-1 text-xs capitalize text-zinc-500 dark:text-zinc-400">
+              {profile.role}
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-red-500">
+            Unable to load user profile
+          </div>
+        )}
       </div>
     </div>
   );
