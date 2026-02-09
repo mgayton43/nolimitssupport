@@ -118,12 +118,14 @@ export const updateCannedResponseSchema = z.object({
 export const createTagSchema = z.object({
   name: z.string().min(1, 'Name is required').max(50),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid color format').optional(),
+  description: z.string().max(500).optional(),
 });
 
 export const updateTagSchema = z.object({
   id: uuidSchema,
   name: z.string().min(1).max(50).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  description: z.string().max(500).nullable().optional(),
 });
 
 // ============================================

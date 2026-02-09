@@ -44,6 +44,7 @@ export function TagList({ tags }: TagListProps) {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const description = (formData.get('description') as string)?.trim() || null;
 
     startTransition(async () => {
       if (editingTag) {
@@ -51,11 +52,13 @@ export function TagList({ tags }: TagListProps) {
           id: editingTag.id,
           name: formData.get('name') as string,
           color: selectedColor,
+          description,
         });
       } else {
         await createTag({
           name: formData.get('name') as string,
           color: selectedColor,
+          description: description || undefined,
         });
       }
       setIsDialogOpen(false);
@@ -100,19 +103,26 @@ export function TagList({ tags }: TagListProps) {
           {tags.map((tag) => (
             <div
               key={tag.id}
-              className="flex items-center justify-between rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+              className="flex items-start justify-between rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
             >
-              <Badge
-                variant="secondary"
-                style={{ backgroundColor: `${tag.color}20`, borderColor: tag.color }}
-              >
-                <div
-                  className="mr-1.5 h-2 w-2 rounded-full"
-                  style={{ backgroundColor: tag.color }}
-                />
-                {tag.name}
-              </Badge>
-              <div className="flex gap-1">
+              <div className="flex-1 min-w-0 space-y-1">
+                <Badge
+                  variant="secondary"
+                  style={{ backgroundColor: `${tag.color}20`, borderColor: tag.color }}
+                >
+                  <div
+                    className="mr-1.5 h-2 w-2 rounded-full"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                  {tag.name}
+                </Badge>
+                {tag.description && (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2">
+                    {tag.description}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-1 shrink-0 ml-2">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -151,6 +161,19 @@ export function TagList({ tags }: TagListProps) {
                 defaultValue={editingTag?.name}
                 placeholder="e.g., Billing"
                 required
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="description" className="text-sm font-medium">
+                Description <span className="text-zinc-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                id="description"
+                name="description"
+                defaultValue={editingTag?.description || ''}
+                placeholder="When should agents use this tag?"
+                rows={2}
+                className="w-full rounded-md border border-zinc-200 bg-transparent px-3 py-2 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:border-zinc-800 dark:focus:ring-zinc-100"
               />
             </div>
             <div className="space-y-2">

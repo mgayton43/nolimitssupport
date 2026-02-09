@@ -23,6 +23,7 @@ export async function createTag(input: CreateTagInput) {
     .insert({
       name: parsed.data.name,
       color: parsed.data.color || '#6B7280',
+      description: parsed.data.description || null,
     })
     .select('id')
     .single();
@@ -46,9 +47,10 @@ export async function updateTag(input: UpdateTagInput) {
 
   const supabase = await createClient();
 
-  const updateData: Partial<Omit<UpdateTagInput, 'id'>> = {};
+  const updateData: Record<string, string | null | undefined> = {};
   if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
   if (parsed.data.color !== undefined) updateData.color = parsed.data.color;
+  if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
 
   const { error } = await supabase
     .from('tags')
