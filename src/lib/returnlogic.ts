@@ -173,7 +173,7 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
     // Transform and normalize the response
     const rmas: ReturnLogicRMA[] = rawRmas.map((rma: Record<string, unknown>) => {
       // Log each RMA's key fields for debugging
-      console.log('Processing RMA:', {
+      console.log('Processing RMA - IDs and Status:', {
         id: rma.id,
         _id: rma._id,
         rmaId: rma.rmaId,
@@ -187,6 +187,25 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
         workflowStatus: rma.workflowStatus,
         workflow_status: rma.workflow_status,
         state: rma.state,
+      });
+      console.log('Processing RMA - Details:', {
+        reason: rma.reason,
+        return_reason: rma.return_reason,
+        returnReason: rma.returnReason,
+        items: rma.items,
+        line_items: rma.line_items,
+        lineItems: rma.lineItems,
+        products: rma.products,
+        refund_amount: rma.refund_amount,
+        refundAmount: rma.refundAmount,
+        credit_amount: rma.credit_amount,
+        creditAmount: rma.creditAmount,
+        total: rma.total,
+        amount: rma.amount,
+        resolution_type: rma.resolution_type,
+        resolutionType: rma.resolutionType,
+        return_type: rma.return_type,
+        returnType: rma.returnType,
       });
 
       // Determine the best ID to use for the Return Logic URL
