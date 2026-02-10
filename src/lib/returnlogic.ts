@@ -125,19 +125,49 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
 
     const data = await response.json();
 
+    // DEBUG: Log the full API response structure
+    console.log('=== RETURN LOGIC API RESPONSE ===');
+    console.log('Full response:', JSON.stringify(data, null, 2));
+    console.log('Response type:', typeof data);
+    console.log('Response keys:', Object.keys(data));
+
     // Handle different API response formats
-    const rawRmas = data.rmas || data.data || data || [];
+    const rawRmas = data.rmas || data.data || data.results || data || [];
+
+    console.log('Raw RMAs type:', typeof rawRmas, 'isArray:', Array.isArray(rawRmas));
+    if (Array.isArray(rawRmas) && rawRmas.length > 0) {
+      console.log('First RMA object keys:', Object.keys(rawRmas[0]));
+      console.log('First RMA full object:', JSON.stringify(rawRmas[0], null, 2));
+    }
+    console.log('=== END RETURN LOGIC DEBUG ===');
 
     if (!Array.isArray(rawRmas)) {
+      console.log('rawRmas is not an array, returning empty');
       return { rmas: [] };
     }
 
     // Transform and normalize the response
-    const rmas: ReturnLogicRMA[] = rawRmas.map((rma: Record<string, unknown>) => ({
-      id: String(rma.id || rma._id || ''),
-      rmaNumber: String(rma.rma_number || rma.rmaNumber || rma.number || rma.id || ''),
-      status: normalizeStatus(String(rma.status || 'unknown')),
-      returnType: normalizeReturnType(String(rma.return_type || rma.returnType || rma.type || 'refund')),
+    const rmas: ReturnLogicRMA[] = rawRmas.map((rma: Record<string, unknown>) => {
+      // Log each RMA's key fields for debugging
+      console.log('Processing RMA:', {
+        id: rma.id,
+        _id: rma._id,
+        rmaId: rma.rmaId,
+        rma_id: rma.rma_id,
+        rlRmaId: rma.rlRmaId,
+        rl_rma_id: rma.rl_rma_id,
+        rmaNumber: rma.rmaNumber,
+        rma_number: rma.rma_number,
+        number: rma.number,
+        status: rma.status,
+        state: rma.state,
+      });
+
+      return {
+      id: String(rma.rlRmaId || rma.rl_rma_id || rma.rmaId || rma.rma_id || rma.id || rma._id || ''),
+      rmaNumber: String(rma.rmaNumber || rma.rma_number || rma.number || rma.rlRmaId || rma.id || ''),
+      status: normalizeStatus(String(rma.status || rma.state || 'unknown')),
+      returnType: normalizeReturnType(String(rma.return_type || rma.returnType || rma.resolution_type || rma.resolutionType || rma.type || 'refund')),
       createdAt: String(rma.created_at || rma.createdAt || new Date().toISOString()),
       updatedAt: String(rma.updated_at || rma.updatedAt || rma.created_at || rma.createdAt || new Date().toISOString()),
       reason: rma.reason ? String(rma.reason) : null,
@@ -158,7 +188,8 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
       orderNumber: rma.order_number || rma.orderNumber ? String(rma.order_number || rma.orderNumber) : null,
       customerEmail: String(rma.customer_email || rma.customerEmail || rma.email || email),
       customerName: rma.customer_name || rma.customerName ? String(rma.customer_name || rma.customerName) : null,
-    }));
+    };
+    });
 
     // Sort by created date, most recent first
     rmas.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
