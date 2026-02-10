@@ -209,6 +209,37 @@ export async function getBrandIdFromEmail(
 }
 
 /**
+ * Convert HTML to plain text while preserving line breaks
+ */
+export function htmlToText(html: string): string {
+  return html
+    // Replace <br>, <br/>, <br /> with newlines
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Replace closing block tags with newlines
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    // Replace <p>, <div> opening tags with newlines (for spacing)
+    .replace(/<(p|div)[^>]*>/gi, '\n')
+    // Remove all remaining HTML tags
+    .replace(/<[^>]*>/g, '')
+    // Decode common HTML entities
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&rsquo;/gi, "'")
+    .replace(/&lsquo;/gi, "'")
+    .replace(/&rdquo;/gi, '"')
+    .replace(/&ldquo;/gi, '"')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    // Clean up multiple newlines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * Extract only the NEW content from an email reply by stripping:
  * - Quoted content (lines starting with >)
  * - "On [date], [person] wrote:" sections
@@ -221,38 +252,48 @@ export function extractNewEmailContent(rawContent: string): string {
     return '(No content)';
   }
 
-  let content = rawContent;
+  // Step 1: Normalize line breaks
+  let content = rawContent
+    .replace(/\r\n/g, '\n')  // Windows line breaks
+    .replace(/\r/g, '\n');   // Old Mac line breaks
 
-  // Patterns that indicate the start of quoted/old content (everything after is removed)
-  const cutoffPatterns = [
+  // Step 2: Primary cutoff patterns - these indicate start of quoted thread
+  // We look for these WITHOUT requiring \n prefix since emails may have no line breaks
+  const primaryCutoffPatterns = [
+    // "Sent from my iPhone" followed by "On" (common iPhone reply pattern)
+    /Sent from my (?:iPhone|iPad|Android|Samsung|Galaxy|mobile device|phone)\s*On\s+/i,
+
+    // iPhone/Apple Mail: "On Jan 29, 2026, at 9:08 AM, Name <email> wrote:"
+    /On\s+\w{3}\s+\d{1,2},\s+\d{4},?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<]*<[^>]+>\s*wrote:/i,
+
     // Gmail: "On Mon, Feb 9, 2026 at 11:19 PM, Name <email> wrote:"
-    /\nOn\s+\w{3},\s+\w{3}\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<]*<[^>]+>\s*wrote:/gi,
-    // Gmail simplified: "On Feb 9, 2026, at 11:19 PM, Name wrote:"
-    /\nOn\s+\w{3}\s+\d{1,2},\s+\d{4},?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^:]+wrote:/gi,
-    // Outlook: "On [date] [time], [person] wrote:"
-    /\nOn\s+\d{1,2}\/\d{1,2}\/\d{2,4}[^:]*wrote:/gi,
-    // Generic: "On [any date format], [person] wrote:"
-    /\n[-_]*\s*On\s+.{10,60}\s+wrote:\s*\n/gi,
+    /On\s+\w{3},\s+\w{3}\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<]*<[^>]+>\s*wrote:/i,
+
+    // Outlook-style: "On 1/29/2026 9:08 AM, Name wrote:"
+    /On\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^:]{1,50}\s*wrote:/i,
+
+    // Generic: "On [date string], [name/email] wrote:" - at least 10 chars of date, then wrote:
+    /On\s+[^:]{10,80}\s+wrote:/i,
+
     // "-------- Original Message --------"
-    /\n-{3,}\s*Original Message\s*-{3,}/gi,
+    /-{3,}\s*Original Message\s*-{3,}/i,
+
     // "---------- Forwarded message ----------"
-    /\n-{3,}\s*Forwarded message\s*-{3,}/gi,
-    // Outlook forwarded headers block: "From: ... Sent: ... To: ... Subject: ..."
-    /\nFrom:\s*[^\n]+\nSent:\s*[^\n]+\nTo:\s*[^\n]+\nSubject:\s*/gi,
-    // "From: Name" at start of line followed by date headers
-    /\nFrom:\s*[^\n]+\n(?:Date|Sent):\s*[^\n]+\n/gi,
+    /-{3,}\s*Forwarded message\s*-{3,}/i,
+
+    // Outlook forwarded block: "From: ... Sent: ..."
+    /From:\s*[^\n]{1,100}\s*Sent:\s*[^\n]{1,100}\s*To:/i,
+
     // Apple Mail: "Begin forwarded message:"
-    /\nBegin forwarded message:/gi,
-    // Generic reply separator
-    /\n_{5,}\n/g,
-    /\n-{5,}\n/g,
+    /Begin forwarded message:/i,
   ];
 
   // Find the earliest cutoff point
   let earliestCutoff = content.length;
-  for (const pattern of cutoffPatterns) {
+  for (const pattern of primaryCutoffPatterns) {
     const match = content.match(pattern);
     if (match && match.index !== undefined && match.index < earliestCutoff) {
+      // For "Sent from my iPhone" followed by On, cut at "Sent"
       earliestCutoff = match.index;
     }
   }
@@ -262,82 +303,73 @@ export function extractNewEmailContent(rawContent: string): string {
     content = content.substring(0, earliestCutoff);
   }
 
-  // Remove quoted lines (starting with >)
+  // Step 3: Handle "Sent from my iPhone" as a signature (if not already caught above)
+  const sentFromMatch = content.match(/Sent from my (?:iPhone|iPad|Android|Samsung|Galaxy|mobile device|phone)/i);
+  if (sentFromMatch && sentFromMatch.index !== undefined) {
+    content = content.substring(0, sentFromMatch.index);
+  }
+
+  // Step 4: Handle "Get Outlook for iOS/Android"
+  const outlookMatch = content.match(/Get Outlook for (?:iOS|Android)/i);
+  if (outlookMatch && outlookMatch.index !== undefined) {
+    content = content.substring(0, outlookMatch.index);
+  }
+
+  // Step 5: Remove quoted lines (starting with >)
   const lines = content.split('\n');
   const cleanedLines: string[] = [];
-  let consecutiveQuotedLines = 0;
 
   for (const line of lines) {
     const trimmedLine = line.trim();
-
-    // Check if line starts with quote marker
+    // Skip lines that start with > (quoted text)
     if (trimmedLine.startsWith('>')) {
-      consecutiveQuotedLines++;
-      // If we've seen multiple quoted lines, definitely skip
-      // But allow a single > if it might be used for something else
-      if (consecutiveQuotedLines > 1 || trimmedLine.startsWith('>>')) {
-        continue;
-      }
-      // Check if it looks like a quote (has text after >)
-      const afterQuote = trimmedLine.replace(/^>+\s*/, '');
-      if (afterQuote.length > 0) {
-        continue;
-      }
-    } else {
-      consecutiveQuotedLines = 0;
+      continue;
     }
-
     cleanedLines.push(line);
   }
 
   content = cleanedLines.join('\n');
 
-  // Email signature patterns - look for these and remove everything after
-  const signaturePatterns = [
-    // "-- " (standard email signature delimiter - two dashes and space)
-    /\n--\s*\n/,
-    // "Sent from my iPhone/Android/etc"
-    /\n\s*Sent from my (?:iPhone|iPad|Android|Samsung|Galaxy|mobile device|phone)[^\n]*/i,
-    // "Get Outlook for iOS/Android"
-    /\n\s*Get Outlook for (?:iOS|Android)[^\n]*/i,
+  // Step 6: Handle signature delimiters
+  // "-- " (standard email signature delimiter)
+  const sigDelimMatch = content.match(/\n--\s*\n/);
+  if (sigDelimMatch && sigDelimMatch.index !== undefined) {
+    content = content.substring(0, sigDelimMatch.index);
+  }
+
+  // Step 7: Handle sign-off patterns with name/phone
+  // Pattern: "Regards,Leon Oransky818-618-5366" (no line breaks)
+  // Look for closing words followed by what looks like a name
+  const signoffPatterns = [
+    // "Regards,Name" or "Regards, Name" (with optional phone after)
+    /(Thanks|Thank you|Best|Best regards|Regards|Cheers|Sincerely|Best wishes|Kind regards|Warm regards),?\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?:\s*[\d\-\(\)]{7,})?$/i,
   ];
 
-  for (const pattern of signaturePatterns) {
+  for (const pattern of signoffPatterns) {
     const match = content.match(pattern);
     if (match && match.index !== undefined) {
       content = content.substring(0, match.index);
     }
   }
 
-  // Soft signature patterns - only cut if followed by what looks like a name/signature
-  const softSignaturePatterns = [
-    // "Thanks," / "Thank you," / "Best," / "Regards," etc. followed by a short line (name)
-    /\n\s*(Thanks|Thank you|Best|Best regards|Regards|Cheers|Sincerely|Best wishes|Kind regards|Warm regards),?\s*\n\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s*$/i,
-  ];
-
-  for (const pattern of softSignaturePatterns) {
-    const match = content.match(pattern);
-    if (match && match.index !== undefined) {
-      content = content.substring(0, match.index);
-    }
-  }
-
-  // Clean up excessive whitespace
+  // Step 8: Clean up whitespace
   content = content
-    // Multiple blank lines to single blank line
+    // Multiple spaces to single space
+    .replace(/[ \t]+/g, ' ')
+    // Multiple newlines to double newline (paragraph break)
     .replace(/\n{3,}/g, '\n\n')
     // Trim each line
     .split('\n')
-    .map(line => line.trimEnd())
+    .map(line => line.trim())
     .join('\n')
     // Trim overall
     .trim();
 
-  // If we stripped everything, return a minimal version
+  // Step 9: If we stripped everything, return a minimal version
   if (!content) {
     // Try to extract at least something from the original
-    const firstLine = rawContent.split('\n')[0]?.trim();
-    if (firstLine && !firstLine.startsWith('>')) {
+    const firstLine = rawContent.split(/[\n\r]/)[0]?.trim();
+    if (firstLine && !firstLine.startsWith('>') && firstLine.length > 0) {
       return firstLine;
     }
     return '(Reply with no new content)';

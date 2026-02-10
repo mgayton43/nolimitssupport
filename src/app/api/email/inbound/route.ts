@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { parseEmailAddress, getBrandIdFromEmail, extractNewEmailContent } from '@/lib/email';
+import { parseEmailAddress, getBrandIdFromEmail, extractNewEmailContent, htmlToText } from '@/lib/email';
 
 // Check environment variables
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -291,9 +291,10 @@ export async function POST(request: NextRequest) {
 
     // Get the raw email content (prefer text over html for storage)
     // Also check 'email' and 'body' fields as fallbacks (using rawEmail/rawBody from above)
+    // Use htmlToText for proper HTML conversion that preserves line breaks
     const rawEmailContent: string =
       (data.text && data.text.trim()) ||
-      (data.html ? data.html.replace(/<[^>]*>/g, '').trim() : '') ||
+      (data.html ? htmlToText(data.html) : '') ||
       (typeof rawEmail === 'string' ? rawEmail.trim() : '') ||
       (typeof rawBody === 'string' ? rawBody.trim() : '') ||
       '';
