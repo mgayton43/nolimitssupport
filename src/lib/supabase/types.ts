@@ -16,6 +16,7 @@ export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TicketChannel = 'email' | 'facebook' | 'instagram' | 'manual';
 export type MessageSource = 'reply' | 'new_email' | 'merge';
 export type ResourceType = 'video' | 'article' | 'faq' | 'guide';
+export type CannedResponseStatus = 'active' | 'archived';
 
 export interface Brand {
   id: string;
@@ -162,6 +163,7 @@ export interface CannedResponse {
   brand_id: string | null;
   created_by: string | null;
   is_shared: boolean;
+  status: CannedResponseStatus;
   created_at: string;
   updated_at: string;
   brand?: Brand | null;

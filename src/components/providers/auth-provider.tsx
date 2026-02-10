@@ -1,8 +1,8 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import type { User } from '@supabase/supabase-js';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient, User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import type { Profile } from '@/lib/supabase/types';
 
 interface AuthContextType {
@@ -10,6 +10,7 @@ interface AuthContextType {
   profile: Profile | null;
   isLoading: boolean;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -17,136 +18,148 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   isLoading: true,
   signOut: async () => {},
+  refreshProfile: async () => {},
 });
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Use useState with lazy initializer to create client ONCE
-  const [supabase] = useState(() => createClient());
+// Module-level singleton - created once, reused across all renders
+let globalSupabase: SupabaseClient | null = null;
 
+function getSupabase(): SupabaseClient {
+  if (!globalSupabase) {
+    globalSupabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return globalSupabase;
+}
+
+// Fetch profile - standalone function to avoid dependency issues
+async function fetchProfileData(userId: string): Promise<Profile | null> {
+  const supabase = getSupabase();
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*, team:teams(*)')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('[Auth] Profile error:', error.message);
+      return null;
+    }
+
+    return data as unknown as Profile;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return null; // Expected during cleanup
+    }
+    console.error('[Auth] Profile exception:', err);
+    return null;
+  }
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [authInitialized, setAuthInitialized] = useState(false);
 
-  // Fetch profile - stable function that doesn't change
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
-    console.log('[Auth] Fetching profile for:', userId);
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*, team:teams(*)')
-        .eq('id', userId)
-        .single();
+  // Use ref to track initialization - doesn't trigger re-renders
+  const initRef = useRef(false);
+  const mountedRef = useRef(true);
 
-      if (error) {
-        console.error('[Auth] Profile fetch error:', error.message);
-        return null;
-      }
-
-      const profile = data as Profile;
-      console.log('[Auth] Profile loaded:', profile?.email, 'role:', profile?.role);
-      return profile;
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return null;
-      }
-      console.error('[Auth] Profile fetch exception:', err);
-      return null;
-    }
-  }, [supabase]);
-
-  // Initialize auth on mount
   useEffect(() => {
-    let isCancelled = false;
+    mountedRef.current = true;
+    const supabase = getSupabase();
 
-    const initialize = async () => {
-      console.log('[Auth] Initializing...');
+    // Handler for auth state changes
+    const handleAuthChange = async (event: AuthChangeEvent, session: Session | null) => {
+      console.log('[Auth] Event:', event);
 
-      try {
-        const { data: { user: authUser }, error } = await supabase.auth.getUser();
+      if (!mountedRef.current) return;
 
-        if (isCancelled) return;
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
 
+      if (currentUser) {
+        const profileData = await fetchProfileData(currentUser.id);
+        if (mountedRef.current) {
+          console.log('[Auth] Profile loaded:', profileData?.role);
+          setProfile(profileData);
+        }
+      } else {
+        setProfile(null);
+      }
+
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    };
+
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
+
+    // Then do initial check (only once)
+    if (!initRef.current) {
+      initRef.current = true;
+      console.log('[Auth] Initial check...');
+
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
         if (error) {
-          console.error('[Auth] getUser error:', error.message);
-          setIsLoading(false);
-          setAuthInitialized(true);
+          console.error('[Auth] Session error:', error.message);
+          if (mountedRef.current) {
+            setIsLoading(false);
+          }
           return;
         }
 
-        console.log('[Auth] User:', authUser?.email || 'none');
-        setUser(authUser);
-
-        if (authUser) {
-          const profileData = await fetchProfile(authUser.id);
-          if (!isCancelled && profileData) {
-            setProfile(profileData);
-          } else if (!isCancelled) {
-            console.warn('[Auth] No profile found for user');
-          }
-        }
-      } catch (err) {
-        console.error('[Auth] Init error:', err);
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-          setAuthInitialized(true);
-        }
-      }
-    };
-
-    initialize();
-
-    // Listen for auth changes AFTER initial load
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('[Auth] State change:', event);
-
-        if (isCancelled) return;
-
-        // Only handle changes after initialization
-        if (!authInitialized && event === 'INITIAL_SESSION') {
-          return; // Skip - we handle this in initialize()
-        }
-
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
-
-        if (currentUser) {
-          const profileData = await fetchProfile(currentUser.id);
-          if (!isCancelled) {
-            setProfile(profileData);
-          }
-        } else {
-          setProfile(null);
-        }
-
-        if (!isCancelled) {
+        // If we got a session, the onAuthStateChange will handle it
+        // If no session, we need to clear loading state
+        if (!session && mountedRef.current) {
+          console.log('[Auth] No session');
           setIsLoading(false);
         }
-      }
-    );
+      }).catch((err) => {
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.log('[Auth] Session check aborted');
+          return;
+        }
+        console.error('[Auth] Session check error:', err);
+        if (mountedRef.current) {
+          setIsLoading(false);
+        }
+      });
+    }
 
     return () => {
       console.log('[Auth] Cleanup');
-      isCancelled = true;
+      mountedRef.current = false;
       subscription.unsubscribe();
     };
-  }, [supabase, fetchProfile, authInitialized]);
+  }, []); // Empty deps - only run once on mount
+
+  const refreshProfile = useCallback(async () => {
+    if (!user) return;
+    const profileData = await fetchProfileData(user.id);
+    if (profileData) {
+      setProfile(profileData);
+    }
+  }, [user]);
 
   const signOut = useCallback(async () => {
+    const supabase = getSupabase();
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
-  }, [supabase]);
+  }, []);
 
-  // Memoize context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({
     user,
     profile,
     isLoading,
     signOut,
-  }), [user, profile, isLoading, signOut]);
+    refreshProfile,
+  }), [user, profile, isLoading, signOut, refreshProfile]);
 
   return (
     <AuthContext.Provider value={contextValue}>

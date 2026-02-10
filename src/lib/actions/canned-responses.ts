@@ -111,6 +111,118 @@ export interface BulkImportResult {
   errors: { row: number; message: string }[];
 }
 
+export async function bulkDeleteCannedResponses(responseIds: string[]) {
+  if (!responseIds.length) {
+    return { error: 'No responses selected' };
+  }
+
+  const supabase = await createClient();
+
+  // Check if user is admin
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'admin') {
+    return { error: 'Only admins can bulk delete canned responses' };
+  }
+
+  const { error } = await supabase
+    .from('canned_responses')
+    .delete()
+    .in('id', responseIds);
+
+  if (error) {
+    return { error: 'Failed to delete canned responses' };
+  }
+
+  revalidatePath('/settings/canned-responses');
+  return { success: true, deleted: responseIds.length };
+}
+
+export async function bulkUpdateCannedResponseBrand(
+  responseIds: string[],
+  brandId: string | null
+) {
+  if (!responseIds.length) {
+    return { error: 'No responses selected' };
+  }
+
+  const supabase = await createClient();
+
+  // Check if user is admin
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'admin') {
+    return { error: 'Only admins can bulk change brand' };
+  }
+
+  const { error } = await supabase
+    .from('canned_responses')
+    .update({ brand_id: brandId })
+    .in('id', responseIds);
+
+  if (error) {
+    return { error: 'Failed to update brand' };
+  }
+
+  revalidatePath('/settings/canned-responses');
+  return { success: true, updated: responseIds.length };
+}
+
+export async function bulkSetCannedResponseStatus(
+  responseIds: string[],
+  status: 'active' | 'archived'
+) {
+  if (!responseIds.length) {
+    return { error: 'No responses selected' };
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  const { error } = await supabase
+    .from('canned_responses')
+    .update({ status })
+    .in('id', responseIds);
+
+  if (error) {
+    return { error: `Failed to ${status === 'archived' ? 'archive' : 'activate'} canned responses` };
+  }
+
+  revalidatePath('/settings/canned-responses');
+  return { success: true, updated: responseIds.length };
+}
+
 export async function bulkCreateCannedResponses(
   responses: BulkCannedResponseInput[]
 ): Promise<BulkImportResult> {

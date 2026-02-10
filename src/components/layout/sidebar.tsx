@@ -142,7 +142,7 @@ export function Sidebar() {
           </>
         ) : (
           <div className="text-xs text-red-500">
-            Unable to load user profile
+            Unable to load profile
           </div>
         )}
       </div>

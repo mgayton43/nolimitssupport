@@ -9,10 +9,26 @@ import { getResources } from '@/lib/actions/resources';
 async function CannedResponsesContent() {
   const supabase = await createClient();
 
+  // Get current user and check if admin
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user;
+
+  let isAdmin = false;
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    isAdmin = profile?.role === 'admin';
+  }
+
   const [responsesResult, brandsResult, resourcesResult] = await Promise.all([
     supabase
       .from('canned_responses')
-      .select('*, creator:profiles(full_name, email)')
+      .select('*, creator:profiles(full_name, email), brand:brands(*)')
       .order('title'),
     getBrands(),
     getResources(),
@@ -31,6 +47,7 @@ async function CannedResponsesContent() {
       responses={responsesResult.data || []}
       brands={brandsResult.brands}
       resources={resourcesResult.resources}
+      isAdmin={isAdmin}
     />
   );
 }

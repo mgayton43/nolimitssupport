@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useTransition, useRef } from 'react';
-import { Plus, Pencil, Trash2, Info, Upload, Download, FileText, AlertCircle, CheckCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Info, Upload, Download, FileText, AlertCircle, CheckCircle, Archive, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+// Using native checkbox instead of Radix to avoid module issues
+// import { Checkbox } from '@/components/ui/checkbox';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import {
   Dialog,
@@ -26,6 +28,9 @@ import {
   updateCannedResponse,
   deleteCannedResponse,
   bulkCreateCannedResponses,
+  bulkDeleteCannedResponses,
+  bulkUpdateCannedResponseBrand,
+  bulkSetCannedResponseStatus,
   type BulkCannedResponseInput,
 } from '@/lib/actions/canned-responses';
 import { AVAILABLE_VARIABLES } from '@/lib/utils/template-variables';
@@ -35,6 +40,7 @@ interface CannedResponseListProps {
   responses: (CannedResponse & { creator: Pick<Profile, 'full_name' | 'email'> | null; brand?: Brand | null })[];
   brands: Brand[];
   resources?: Resource[];
+  isAdmin?: boolean;
 }
 
 interface ParsedRow {
@@ -129,15 +135,19 @@ function generateCSVTemplate(): string {
   return [headers, ...examples].join('\n');
 }
 
-export function CannedResponseList({ responses, brands, resources = [] }: CannedResponseListProps) {
+export function CannedResponseList({ responses, brands, resources = [], isAdmin = false }: CannedResponseListProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
+  const [isBrandDialogOpen, setIsBrandDialogOpen] = useState(false);
   const [editingResponse, setEditingResponse] = useState<CannedResponse | null>(null);
   const [isPending, startTransition] = useTransition();
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [importResult, setImportResult] = useState<{ success: boolean; message: string } | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [editorContent, setEditorContent] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBrandId, setBulkBrandId] = useState<string>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -170,10 +180,124 @@ export function CannedResponseList({ responses, brands, resources = [] }: Canned
     });
   };
 
-  // Filter responses by selected brand
-  const filteredResponses = selectedBrandId === 'all'
-    ? responses
-    : responses.filter(r => r.brand_id === selectedBrandId || r.brand_id === null);
+  // Filter responses by selected brand and status
+  const filteredResponses = responses.filter(r => {
+    // Brand filter
+    const brandMatch = selectedBrandId === 'all' || r.brand_id === selectedBrandId || r.brand_id === null;
+    // Status filter - treat undefined/null status as 'active' for backwards compatibility
+    const responseStatus = r.status || 'active';
+    const statusMatch = statusFilter === 'all' || responseStatus === statusFilter;
+    return brandMatch && statusMatch;
+  });
+
+  // Clear selection when filters change
+  const handleFilterChange = (type: 'brand' | 'status', value: string) => {
+    setSelectedIds(new Set());
+    if (type === 'brand') {
+      setSelectedBrandId(value);
+    } else {
+      setStatusFilter(value as 'all' | 'active' | 'archived');
+    }
+  };
+
+  // Toggle selection for a single response
+  const toggleSelection = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  // Toggle select all for current filtered list
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredResponses.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredResponses.map(r => r.id)));
+    }
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  // Bulk delete handler
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} canned response${selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+
+    startTransition(async () => {
+      const result = await bulkDeleteCannedResponses(Array.from(selectedIds));
+      if (result.error) {
+        alert(result.error);
+      } else {
+        setSelectedIds(new Set());
+      }
+    });
+  };
+
+  // Bulk archive handler
+  const handleBulkArchive = () => {
+    if (selectedIds.size === 0) return;
+
+    startTransition(async () => {
+      const result = await bulkSetCannedResponseStatus(Array.from(selectedIds), 'archived');
+      if (result.error) {
+        alert(result.error);
+      } else {
+        setSelectedIds(new Set());
+      }
+    });
+  };
+
+  // Bulk activate handler
+  const handleBulkActivate = () => {
+    if (selectedIds.size === 0) return;
+
+    startTransition(async () => {
+      const result = await bulkSetCannedResponseStatus(Array.from(selectedIds), 'active');
+      if (result.error) {
+        alert(result.error);
+      } else {
+        setSelectedIds(new Set());
+      }
+    });
+  };
+
+  // Bulk change brand handler
+  const handleBulkChangeBrand = () => {
+    if (selectedIds.size === 0) return;
+
+    startTransition(async () => {
+      const result = await bulkUpdateCannedResponseBrand(
+        Array.from(selectedIds),
+        bulkBrandId === 'all' ? null : bulkBrandId
+      );
+      if (result.error) {
+        alert(result.error);
+      } else {
+        setSelectedIds(new Set());
+        setIsBrandDialogOpen(false);
+      }
+    });
+  };
+
+  // Check if all selected items are archived (to show activate button)
+  const allSelectedArchived = Array.from(selectedIds).every(id => {
+    const response = responses.find(r => r.id === id);
+    return response?.status === 'archived';
+  });
+
+  // Check if all selected items are active (to show archive button)
+  // Treat undefined/null status as 'active' for backwards compatibility
+  const allSelectedActive = Array.from(selectedIds).every(id => {
+    const response = responses.find(r => r.id === id);
+    return (response?.status || 'active') === 'active';
+  });
 
   const handleDelete = (id: string) => {
     if (!confirm('Are you sure you want to delete this canned response?')) return;
@@ -303,7 +427,17 @@ export function CannedResponseList({ responses, brands, resources = [] }: Canned
           </div>
         </div>
         <div className="flex gap-2">
-          <Select value={selectedBrandId} onValueChange={setSelectedBrandId}>
+          <Select value={statusFilter} onValueChange={(v) => handleFilterChange('status', v)}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="archived">Archived</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={selectedBrandId} onValueChange={(v) => handleFilterChange('brand', v)}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Filter by brand" />
             </SelectTrigger>
@@ -333,6 +467,116 @@ export function CannedResponseList({ responses, brands, resources = [] }: Canned
         </div>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-4 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={selectedIds.size === filteredResponses.length && filteredResponses.length > 0}
+              onChange={toggleSelectAll}
+              className="h-4 w-4 rounded border-zinc-300"
+            />
+            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+              {selectedIds.size} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            {/* Archive / Activate button based on selection */}
+            {allSelectedActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkArchive}
+                disabled={isPending}
+              >
+                <Archive className="mr-2 h-4 w-4" />
+                Archive
+              </Button>
+            )}
+            {allSelectedArchived && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkActivate}
+                disabled={isPending}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Set Active
+              </Button>
+            )}
+            {!allSelectedActive && !allSelectedArchived && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkArchive}
+                  disabled={isPending}
+                >
+                  <Archive className="mr-2 h-4 w-4" />
+                  Archive
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkActivate}
+                  disabled={isPending}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Set Active
+                </Button>
+              </>
+            )}
+            {/* Change Brand - Admin only */}
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsBrandDialogOpen(true)}
+                disabled={isPending}
+              >
+                Change Brand
+              </Button>
+            )}
+            {/* Delete - Admin only */}
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                onClick={handleBulkDelete}
+                disabled={isPending}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearSelection}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Select All Row */}
+      {filteredResponses.length > 0 && selectedIds.size === 0 && (
+        <div className="flex items-center gap-2 px-2">
+          <input
+            type="checkbox"
+            checked={false}
+            onChange={toggleSelectAll}
+            className="h-4 w-4 rounded border-zinc-300"
+          />
+          <span className="text-sm text-zinc-500 dark:text-zinc-400">
+            Select all ({filteredResponses.length})
+          </span>
+        </div>
+      )}
+
       {filteredResponses.length === 0 ? (
         <div className="text-center py-12 text-zinc-500 dark:text-zinc-400">
           {responses.length === 0 ? 'No canned responses yet. Create your first one.' : 'No responses match the selected filter.'}
@@ -340,12 +584,31 @@ export function CannedResponseList({ responses, brands, resources = [] }: Canned
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {filteredResponses.map((response) => (
-            <Card key={response.id}>
-              <CardHeader className="pb-2">
+            <Card
+              key={response.id}
+              className={`relative ${
+                response.status === 'archived' ? 'opacity-60 border-dashed' : ''
+              } ${selectedIds.has(response.id) ? 'ring-2 ring-blue-500' : ''}`}
+            >
+              {/* Checkbox */}
+              <div className="absolute left-3 top-4 z-10">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(response.id)}
+                  onChange={() => toggleSelection(response.id)}
+                  className="h-4 w-4 rounded border-zinc-300"
+                />
+              </div>
+              <CardHeader className="pb-2 pl-10">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-base">{response.title}</CardTitle>
+                      {response.status === 'archived' && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          Archived
+                        </Badge>
+                      )}
                       {response.brand ? (
                         <span
                           className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
@@ -389,7 +652,7 @@ export function CannedResponseList({ responses, brands, resources = [] }: Canned
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pl-10">
                 <p className="text-sm text-zinc-600 dark:text-zinc-300 line-clamp-3 whitespace-pre-wrap">
                   {response.content}
                 </p>
@@ -637,6 +900,47 @@ export function CannedResponseList({ responses, brands, resources = [] }: Canned
               disabled={isPending || validCount === 0}
             >
               {isPending ? 'Importing...' : `Import ${validCount} Response${validCount !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Change Brand Dialog */}
+      <Dialog open={isBrandDialogOpen} onOpenChange={setIsBrandDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Brand for {selectedIds.size} Response{selectedIds.size !== 1 ? 's' : ''}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Select Brand</label>
+              <Select value={bulkBrandId} onValueChange={setBulkBrandId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select brand" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {brands.map((brand) => (
+                    <SelectItem key={brand.id} value={brand.id}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-3 w-3 rounded-full"
+                          style={{ backgroundColor: brand.color }}
+                        />
+                        {brand.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBrandDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkChangeBrand} disabled={isPending}>
+              {isPending ? 'Updating...' : 'Update Brand'}
             </Button>
           </DialogFooter>
         </DialogContent>
