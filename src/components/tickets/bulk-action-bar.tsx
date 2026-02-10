@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { X, CheckCircle, UserPlus, Tag, RefreshCw } from 'lucide-react';
+import { X, CheckCircle, UserPlus, Tag, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -11,18 +11,35 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   bulkUpdateTicketStatus,
   bulkAssignTickets,
   bulkAddTagToTickets,
+  bulkDeleteTickets,
 } from '@/lib/actions/tickets';
 import type { Profile, Tag as TagType, TicketStatus } from '@/lib/supabase/types';
 
+interface SelectedTicket {
+  id: string;
+  subject: string;
+  ticket_number: number;
+}
+
 interface BulkActionBarProps {
   selectedIds: string[];
+  selectedTickets?: SelectedTicket[];
   onClearSelection: () => void;
   onActionComplete: (message: string) => void;
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
   tags: TagType[];
+  isAdmin?: boolean;
 }
 
 const statusOptions: { value: TicketStatus; label: string }[] = [
@@ -33,13 +50,16 @@ const statusOptions: { value: TicketStatus; label: string }[] = [
 
 export function BulkActionBar({
   selectedIds,
+  selectedTickets = [],
   onClearSelection,
   onActionComplete,
   agents,
   tags,
+  isAdmin = false,
 }: BulkActionBarProps) {
   const [isPending, startTransition] = useTransition();
   const [activeAction, setActiveAction] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const handleStatusChange = (status: TicketStatus) => {
     setActiveAction('status');
@@ -99,6 +119,23 @@ export function BulkActionBar({
         onClearSelection();
       }
       setActiveAction(null);
+    });
+  };
+
+  const handleDelete = () => {
+    setActiveAction('delete');
+    startTransition(async () => {
+      const result = await bulkDeleteTickets(selectedIds);
+      if ('error' in result) {
+        onActionComplete(`Error: ${result.error}`);
+      } else {
+        onActionComplete(
+          `Deleted ${result.count} ticket${result.count !== 1 ? 's' : ''}`
+        );
+        onClearSelection();
+      }
+      setActiveAction(null);
+      setIsDeleteDialogOpen(false);
     });
   };
 
@@ -196,7 +233,84 @@ export function BulkActionBar({
             </SelectContent>
           </Select>
         )}
+
+        {/* Delete button - admin only */}
+        {isAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsDeleteDialogOpen(true)}
+            disabled={isPending}
+            className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-900/20"
+          >
+            {isPending && activeAction === 'delete' ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="mr-2 h-4 w-4" />
+            )}
+            Delete ({selectedIds.length})
+          </Button>
+        )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.length} ticket{selectedIds.length !== 1 ? 's' : ''}?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. All messages and attachments will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTickets.length > 0 && selectedTickets.length <= 10 && (
+            <div className="max-h-40 overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+              <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {selectedTickets.map((ticket) => (
+                  <li key={ticket.id} className="px-3 py-2 text-sm">
+                    <span className="text-zinc-500 dark:text-zinc-400">#{ticket.ticket_number}</span>{' '}
+                    <span className="truncate">{ticket.subject}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {selectedTickets.length > 10 && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {selectedTickets.length} tickets selected for deletion.
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isPending && activeAction === 'delete' ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

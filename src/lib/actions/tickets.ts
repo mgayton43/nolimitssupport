@@ -655,6 +655,122 @@ export async function bulkAddTagToTickets(
   return { success: true, count: ticketIds.length };
 }
 
+export async function bulkDeleteTickets(
+  ticketIds: string[]
+): Promise<{ success: true; count: number } | { error: string }> {
+  if (ticketIds.length === 0) {
+    return { error: 'No tickets selected' };
+  }
+
+  const supabase = await createClient();
+
+  // Check if user is admin
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: 'Not authenticated' };
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.role !== 'admin') {
+    return { error: 'Only admins can delete tickets' };
+  }
+
+  // Delete associated data first (due to foreign key constraints)
+  // 1. Delete ticket_tags
+  const { error: tagsError } = await supabase
+    .from('ticket_tags')
+    .delete()
+    .in('ticket_id', ticketIds);
+
+  if (tagsError) {
+    console.error('Error deleting ticket tags:', tagsError);
+  }
+
+  // 2. Delete messages (and their attachments from storage if needed)
+  // First get messages to find attachments
+  const { data: messages } = await supabase
+    .from('messages')
+    .select('id, attachments')
+    .in('ticket_id', ticketIds);
+
+  if (messages) {
+    // Collect all attachment paths for deletion from storage
+    const attachmentPaths: string[] = [];
+    for (const message of messages) {
+      if (message.attachments && Array.isArray(message.attachments)) {
+        for (const attachment of message.attachments) {
+          if (attachment && typeof attachment === 'object' && 'path' in attachment) {
+            attachmentPaths.push((attachment as { path: string }).path);
+          }
+        }
+      }
+    }
+
+    // Delete attachments from storage
+    if (attachmentPaths.length > 0) {
+      const { error: storageError } = await supabase.storage
+        .from('attachments')
+        .remove(attachmentPaths);
+
+      if (storageError) {
+        console.error('Error deleting attachments from storage:', storageError);
+      }
+    }
+  }
+
+  // Delete messages
+  const { error: messagesError } = await supabase
+    .from('messages')
+    .delete()
+    .in('ticket_id', ticketIds);
+
+  if (messagesError) {
+    console.error('Error deleting messages:', messagesError);
+  }
+
+  // 3. Delete ticket_activities
+  const { error: activitiesError } = await supabase
+    .from('ticket_activities')
+    .delete()
+    .in('ticket_id', ticketIds);
+
+  if (activitiesError) {
+    console.error('Error deleting ticket activities:', activitiesError);
+  }
+
+  // 4. Delete ticket_presence
+  const { error: presenceError } = await supabase
+    .from('ticket_presence')
+    .delete()
+    .in('ticket_id', ticketIds);
+
+  if (presenceError) {
+    console.error('Error deleting ticket presence:', presenceError);
+  }
+
+  // 5. Finally delete the tickets
+  const { error: ticketsError, count } = await supabase
+    .from('tickets')
+    .delete()
+    .in('id', ticketIds);
+
+  if (ticketsError) {
+    console.error('Bulk delete error:', ticketsError);
+    return { error: 'Failed to delete tickets' };
+  }
+
+  revalidatePath('/tickets');
+  return { success: true, count: count || ticketIds.length };
+}
+
 // Standalone Ticket Actions (without sending a message)
 
 export type SnoozeDuration = '1-day' | '3-days' | '1-week';

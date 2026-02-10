@@ -10,9 +10,10 @@ interface TicketListProps {
   tickets: TicketSearchResult[];
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
   tags: Tag[];
+  isAdmin?: boolean;
 }
 
-export function TicketList({ tickets, agents, tags }: TicketListProps) {
+export function TicketList({ tickets, agents, tags, isAdmin = false }: TicketListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -109,10 +110,14 @@ export function TicketList({ tickets, agents, tags }: TicketListProps) {
       {/* Bulk action bar */}
       <BulkActionBar
         selectedIds={Array.from(selectedIds)}
+        selectedTickets={tickets
+          .filter((t) => selectedIds.has(t.id))
+          .map((t) => ({ id: t.id, subject: t.subject, ticket_number: t.ticket_number }))}
         onClearSelection={handleClearSelection}
         onActionComplete={handleActionComplete}
         agents={agents}
         tags={tags}
+        isAdmin={isAdmin}
       />
     </>
   );

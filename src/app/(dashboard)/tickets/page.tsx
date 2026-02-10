@@ -46,6 +46,7 @@ async function TicketListContent({
   agents,
   tags,
   currentUserId,
+  isAdmin,
 }: {
   searchParams: {
     status?: string;
@@ -60,6 +61,7 @@ async function TicketListContent({
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
   tags: Tag[];
   currentUserId: string;
+  isAdmin: boolean;
 }) {
   const supabase = await createClient();
 
@@ -114,7 +116,7 @@ async function TicketListContent({
       filteredTickets = filteredTickets.filter((t) => t.brand_id === searchParams.brand);
     }
 
-    return <TicketList tickets={filteredTickets} agents={agents} tags={tags} />;
+    return <TicketList tickets={filteredTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
   }
 
   // Standard query without search
@@ -161,11 +163,11 @@ async function TicketListContent({
 
       if (snoozedError) {
         // Migration not run yet, return empty list
-        return <TicketList tickets={[]} agents={agents} tags={tags} />;
+        return <TicketList tickets={[]} agents={agents} tags={tags} isAdmin={isAdmin} />;
       }
-      return <TicketList tickets={snoozedTickets || []} agents={agents} tags={tags} />;
+      return <TicketList tickets={snoozedTickets || []} agents={agents} tags={tags} isAdmin={isAdmin} />;
     } catch {
-      return <TicketList tickets={[]} agents={agents} tags={tags} />;
+      return <TicketList tickets={[]} agents={agents} tags={tags} isAdmin={isAdmin} />;
     }
   } else if (searchParams.view === 'my-closed') {
     query = query.eq('assigned_agent_id', currentUserId).eq('status', 'closed');
@@ -214,7 +216,7 @@ async function TicketListContent({
     );
   }
 
-  return <TicketList tickets={tickets || []} agents={agents} tags={tags} />;
+  return <TicketList tickets={tickets || []} agents={agents} tags={tags} isAdmin={isAdmin} />;
 }
 
 function TicketListSkeleton() {
@@ -242,6 +244,17 @@ export default async function TicketsPage({ searchParams }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Check if current user is admin
+  let isAdmin = false;
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    isAdmin = profile?.role === 'admin';
+  }
 
   // Fetch agents for filter dropdown and bulk actions
   const { data: agents } = await supabase
@@ -303,6 +316,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
             agents={agents || []}
             tags={tags || []}
             currentUserId={user?.id || ''}
+            isAdmin={isAdmin}
           />
         </Suspense>
       </div>
