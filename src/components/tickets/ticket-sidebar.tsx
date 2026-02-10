@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition, useCallback } from 'react';
 import { Avatar } from '@/components/ui/avatar';
 import {
   Select,
@@ -19,7 +19,38 @@ import {
   assignTicketToTeam,
 } from '@/lib/actions/tickets';
 import { getInitials, formatDate } from '@/lib/utils';
-import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon } from 'lucide-react';
+import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon, Copy, Check } from 'lucide-react';
+
+// Small copy button component
+function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${className}`}
+      title={copied ? 'Copied!' : 'Copy to clipboard'}
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-green-500" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" />
+      )}
+    </button>
+  );
+}
 import Link from 'next/link';
 import type {
   Ticket,
@@ -82,17 +113,25 @@ export function TicketSidebar({
                 fallback={getInitials(ticket.customer.full_name || ticket.customer.email)}
                 size="default"
               />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium truncate">
-                  {ticket.customer.full_name || 'Unknown'}
-                </p>
-                <a
-                  href={`mailto:${ticket.customer.email}`}
-                  className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400 truncate"
-                >
-                  <Mail className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{ticket.customer.email}</span>
-                </a>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="group flex items-center gap-1">
+                  <p className="font-medium truncate">
+                    {ticket.customer.full_name || 'Unknown'}
+                  </p>
+                  {ticket.customer.full_name && (
+                    <CopyButton text={ticket.customer.full_name} />
+                  )}
+                </div>
+                <div className="group flex items-center gap-1">
+                  <a
+                    href={`mailto:${ticket.customer.email}`}
+                    className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400 truncate"
+                  >
+                    <Mail className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{ticket.customer.email}</span>
+                  </a>
+                  <CopyButton text={ticket.customer.email} />
+                </div>
               </div>
             </div>
             {ticket.customer.phone && (
