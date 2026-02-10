@@ -1,6 +1,41 @@
 'use server';
 
-import { getCustomerOrders, getOrderAdminUrl, type ShopifyOrder, type ShopifyCustomer } from '@/lib/shopify';
+import { getCustomerOrders, getOrderAdminUrl, getCustomerAdminUrl, type ShopifyOrder, type ShopifyCustomer, type ShopifyAddress } from '@/lib/shopify';
+
+/**
+ * Format customer location as "City, ST ZIP"
+ */
+function formatCustomerLocation(address: ShopifyAddress | null | undefined): string | null {
+  if (!address) return null;
+
+  const parts: string[] = [];
+
+  if (address.city) {
+    parts.push(address.city);
+  }
+
+  // Use province_code (e.g., "OH") or province (e.g., "Ohio")
+  const state = address.province_code || address.province;
+  if (state) {
+    if (parts.length > 0) {
+      parts.push(state);
+    } else {
+      parts.push(state);
+    }
+  }
+
+  // Add ZIP code
+  if (address.zip) {
+    if (parts.length > 0) {
+      // Join city and state with comma, then add ZIP with space
+      const cityState = parts.join(', ');
+      return `${cityState} ${address.zip}`;
+    }
+    return address.zip;
+  }
+
+  return parts.length > 0 ? parts.join(', ') : null;
+}
 
 export interface OrderHistoryResult {
   customer: {
@@ -9,6 +44,8 @@ export interface OrderHistoryResult {
     email: string;
     ordersCount: number;
     totalSpent: string;
+    adminUrl: string;
+    location: string | null; // "City, ST ZIP" format
   } | null;
   orders: {
     id: number;
@@ -62,6 +99,8 @@ export async function fetchCustomerOrderHistory(email: string): Promise<OrderHis
         email: result.customer.email,
         ordersCount: result.customer.orders_count,
         totalSpent: result.customer.total_spent,
+        adminUrl: getCustomerAdminUrl(result.customer.id),
+        location: formatCustomerLocation(result.customer.default_address),
       }
     : null;
 
@@ -107,4 +146,42 @@ export async function fetchCustomerOrderHistory(email: string): Promise<OrderHis
   });
 
   return { customer, orders };
+}
+
+/**
+ * Server action to fetch just customer info (without orders) - faster for sidebar display
+ */
+export async function fetchShopifyCustomerInfo(email: string): Promise<{
+  customer: {
+    id: number;
+    name: string;
+    adminUrl: string;
+    location: string | null;
+  } | null;
+  error?: string;
+}> {
+  if (!email) {
+    return { customer: null, error: 'No email provided' };
+  }
+
+  try {
+    const { findCustomerByEmail, getCustomerAdminUrl } = await import('@/lib/shopify');
+    const shopifyCustomer = await findCustomerByEmail(email);
+
+    if (!shopifyCustomer) {
+      return { customer: null };
+    }
+
+    return {
+      customer: {
+        id: shopifyCustomer.id,
+        name: [shopifyCustomer.first_name, shopifyCustomer.last_name].filter(Boolean).join(' ') || 'Unknown',
+        adminUrl: getCustomerAdminUrl(shopifyCustomer.id),
+        location: formatCustomerLocation(shopifyCustomer.default_address),
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching Shopify customer info:', error);
+    return { customer: null, error: 'Failed to fetch customer info' };
+  }
 }

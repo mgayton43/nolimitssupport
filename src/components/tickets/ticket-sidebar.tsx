@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useCallback } from 'react';
+import { useState, useTransition, useCallback, useEffect } from 'react';
 import { Avatar } from '@/components/ui/avatar';
 import {
   Select,
@@ -18,8 +18,9 @@ import {
   assignTicket,
   assignTicketToTeam,
 } from '@/lib/actions/tickets';
+import { fetchShopifyCustomerInfo } from '@/lib/actions/shopify';
 import { getInitials, formatDate } from '@/lib/utils';
-import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon, Copy, Check } from 'lucide-react';
+import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon, Copy, Check, MapPin } from 'lucide-react';
 
 // Small copy button component
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
@@ -78,6 +79,38 @@ export function TicketSidebar({
   customerTicketCount,
 }: TicketSidebarProps) {
   const [isPending, startTransition] = useTransition();
+  const [shopifyCustomer, setShopifyCustomer] = useState<{
+    id: number;
+    adminUrl: string;
+    location: string | null;
+  } | null>(null);
+
+  // Fetch Shopify customer info for location and admin link
+  useEffect(() => {
+    if (!ticket.customer?.email) {
+      setShopifyCustomer(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchCustomer = async () => {
+      try {
+        const result = await fetchShopifyCustomerInfo(ticket.customer!.email);
+        if (!cancelled && result.customer) {
+          setShopifyCustomer(result.customer);
+        }
+      } catch (error) {
+        console.error('Failed to fetch Shopify customer:', error);
+      }
+    };
+
+    fetchCustomer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ticket.customer?.email]);
 
   const handlePriorityChange = (priority: TicketPriority) => {
     startTransition(async () => {
@@ -132,6 +165,12 @@ export function TicketSidebar({
                   </a>
                   <CopyButton text={ticket.customer.email} />
                 </div>
+                {shopifyCustomer?.location && (
+                  <div className="flex items-center gap-1 text-sm text-zinc-500 dark:text-zinc-400">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span>{shopifyCustomer.location}</span>
+                  </div>
+                )}
               </div>
             </div>
             {ticket.customer.phone && (
@@ -148,13 +187,25 @@ export function TicketSidebar({
                 <TicketIcon className="h-3.5 w-3.5" />
                 {customerTicketCount ?? 0} ticket{customerTicketCount !== 1 ? 's' : ''}
               </span>
-              <Link
-                href={`/customers/${ticket.customer.id}`}
-                className="flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400"
-              >
-                View profile
-                <ExternalLink className="h-3 w-3" />
-              </Link>
+              {shopifyCustomer ? (
+                <a
+                  href={shopifyCustomer.adminUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View in Shopify
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <Link
+                  href={`/customers/${ticket.customer.id}`}
+                  className="flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View profile
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
             </div>
           </div>
         </div>

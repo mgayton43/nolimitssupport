@@ -45,6 +45,18 @@ export interface ShopifyFulfillment {
   tracking_company: string | null;
 }
 
+export interface ShopifyAddress {
+  id: number;
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  province: string | null;
+  province_code: string | null;
+  zip: string | null;
+  country: string | null;
+  country_code: string | null;
+}
+
 export interface ShopifyCustomer {
   id: number;
   email: string;
@@ -52,6 +64,14 @@ export interface ShopifyCustomer {
   last_name: string | null;
   orders_count: number;
   total_spent: string;
+  default_address?: ShopifyAddress | null;
+}
+
+/**
+ * Get the Shopify admin URL for a customer
+ */
+export function getCustomerAdminUrl(customerId: number): string {
+  return `https://${SHOPIFY_STORE_URL}/admin/customers/${customerId}`;
 }
 
 /**
