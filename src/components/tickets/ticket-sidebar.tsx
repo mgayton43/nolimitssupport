@@ -12,6 +12,7 @@ import {
 import { PriorityBadge } from './priority-badge';
 import { TicketActivityLog } from './ticket-activity-log';
 import { OrderHistory } from './order-history';
+import { ReturnHistory } from './return-history';
 import {
   updateTicketPriority,
   assignTicket,
@@ -226,6 +227,9 @@ export function TicketSidebar({
 
       {/* Order History (Shopify) */}
       <OrderHistory customerEmail={ticket.customer?.email || null} />
+
+      {/* Return History (Return Logic) */}
+      <ReturnHistory customerEmail={ticket.customer?.email || null} />
 
       {/* Activity Log */}
       {activities.length > 0 && (
