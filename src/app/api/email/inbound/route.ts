@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { parseEmailAddress, getBrandIdFromEmail, extractNewEmailContent, htmlToText } from '@/lib/email';
+import { parseEmailAddress, getBrandIdFromEmail, extractNewEmailContent, formatEmailWithQuotedContent, htmlToText } from '@/lib/email';
 
 // Check environment variables
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -327,20 +327,21 @@ export async function POST(request: NextRequest) {
     );
 
     if (existingTicket) {
-      // Add message to existing ticket
+      // Add message to existing ticket - strip quoted content since thread is already visible
       console.log('Adding to existing ticket:', existingTicket.ticket_number);
 
       // Get customer ID
       const customerId = await getOrCreateCustomer(supabase, customerEmail, customerName);
 
-      // Create message
+      // For replies: use cleaned content (without quoted text), store raw for reference
       const { error: messageError } = await supabase
         .from('messages')
         .insert({
           ticket_id: existingTicket.id,
           sender_type: 'customer',
           sender_id: customerId,
-          content: emailContent,
+          content: emailContent, // Cleaned version (quoted content stripped)
+          raw_content: rawEmailContent, // Original for "show full email" toggle
           is_internal: false,
           source: 'new_email',
           source_email_id: headers.messageId,
@@ -378,11 +379,21 @@ export async function POST(request: NextRequest) {
         ticketNumber: existingTicket.ticket_number
       });
     } else {
-      // Create new ticket
+      // Create new ticket - KEEP quoted content for context (agents need to see the thread)
       console.log('Creating new ticket');
 
       // Get or create customer
       const customerId = await getOrCreateCustomer(supabase, customerEmail, customerName);
+
+      // For new tickets: format the content with quoted sections separated
+      // This preserves the conversation context agents need to see
+      const { newContent, quotedContent } = formatEmailWithQuotedContent(rawEmailContent);
+
+      // Build the display content with nicely formatted quoted section
+      let displayContent = newContent;
+      if (quotedContent) {
+        displayContent = `${newContent}\n\n---\n\n**Previous conversation:**\n\n${quotedContent}`;
+      }
 
       // Create ticket
       const { data: ticket, error: ticketError } = await supabase
@@ -406,14 +417,15 @@ export async function POST(request: NextRequest) {
 
       console.log('Created ticket #', ticket.ticket_number);
 
-      // Create initial message
+      // Create initial message with full content for context
       const { error: messageError } = await supabase
         .from('messages')
         .insert({
           ticket_id: ticket.id,
           sender_type: 'customer',
           sender_id: customerId,
-          content: emailContent,
+          content: displayContent, // Formatted with quoted content visible
+          raw_content: rawEmailContent, // Original for reference
           is_internal: false,
           source: 'new_email',
           source_email_id: headers.messageId,

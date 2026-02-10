@@ -379,6 +379,78 @@ export function extractNewEmailContent(rawContent: string): string {
 }
 
 /**
+ * Format email content for display, separating new content from quoted content
+ * Returns the content with quoted sections formatted nicely
+ */
+export function formatEmailWithQuotedContent(rawContent: string): {
+  newContent: string;
+  quotedContent: string | null;
+} {
+  if (!rawContent || !rawContent.trim()) {
+    return { newContent: '(No content)', quotedContent: null };
+  }
+
+  // Normalize line breaks
+  let content = rawContent
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  // Patterns that indicate start of quoted content
+  const quotedStartPatterns = [
+    // "Sent from my iPhone" followed by "On"
+    /Sent from my (?:iPhone|iPad|Android|Samsung|Galaxy|mobile device|phone)\s*On\s+/i,
+    // iPhone/Apple Mail: "On Jan 29, 2026, at 9:08 AM, Name <email> wrote:"
+    /On\s+\w{3}\s+\d{1,2},\s+\d{4},?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<]*<[^>]+>\s*wrote:/i,
+    // Gmail: "On Mon, Feb 9, 2026 at 11:19 PM, Name <email> wrote:"
+    /On\s+\w{3},\s+\w{3}\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<]*<[^>]+>\s*wrote:/i,
+    // Outlook-style: "On 1/29/2026 9:08 AM, Name wrote:"
+    /On\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^:]{1,50}\s*wrote:/i,
+    // Generic: "On [date string], [name/email] wrote:"
+    /On\s+[^:]{10,80}\s+wrote:/i,
+    // "-------- Original Message --------"
+    /-{3,}\s*Original Message\s*-{3,}/i,
+    // "---------- Forwarded message ----------"
+    /-{3,}\s*Forwarded message\s*-{3,}/i,
+    // Outlook forwarded block: "From: ... Sent: ..."
+    /From:\s*[^\n]{1,100}\s*Sent:\s*[^\n]{1,100}\s*To:/i,
+    // Apple Mail: "Begin forwarded message:"
+    /Begin forwarded message:/i,
+  ];
+
+  // Find where quoted content starts
+  let splitIndex = content.length;
+  let matchedPattern: string | null = null;
+
+  for (const pattern of quotedStartPatterns) {
+    const match = content.match(pattern);
+    if (match && match.index !== undefined && match.index < splitIndex) {
+      splitIndex = match.index;
+      matchedPattern = match[0];
+    }
+  }
+
+  // Also check for "Sent from my iPhone" as standalone signature
+  const sentFromMatch = content.match(/Sent from my (?:iPhone|iPad|Android|Samsung|Galaxy|mobile device|phone)/i);
+  if (sentFromMatch && sentFromMatch.index !== undefined && sentFromMatch.index < splitIndex) {
+    splitIndex = sentFromMatch.index;
+    matchedPattern = sentFromMatch[0];
+  }
+
+  if (splitIndex === content.length) {
+    // No quoted content found
+    return { newContent: content.trim(), quotedContent: null };
+  }
+
+  const newContent = content.substring(0, splitIndex).trim();
+  const quotedContent = content.substring(splitIndex).trim();
+
+  return {
+    newContent: newContent || '(Reply with no new content)',
+    quotedContent: quotedContent || null,
+  };
+}
+
+/**
  * Parse email address from a "Name <email>" format
  */
 export function parseEmailAddress(input: string): { email: string; name: string | null } {

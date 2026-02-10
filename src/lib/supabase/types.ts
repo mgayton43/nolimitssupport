@@ -143,6 +143,7 @@ export interface Message {
   sender_type: 'customer' | 'agent';
   sender_id: string | null;
   content: string;
+  raw_content: string | null; // Original unprocessed email content
   is_internal: boolean;
   source: MessageSource;
   source_email_id: string | null; // Email Message-ID if message came from email

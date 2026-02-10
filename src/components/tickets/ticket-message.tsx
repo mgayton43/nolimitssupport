@@ -1,9 +1,15 @@
+'use client';
+
+import { useState } from 'react';
 import {
   File,
   FileText,
   FileSpreadsheet,
   Image as ImageIcon,
   Download,
+  ChevronDown,
+  ChevronUp,
+  Mail,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -36,6 +42,13 @@ function formatFileSize(bytes: number) {
 export function TicketMessage({ message, senderName, senderAvatar }: TicketMessageProps) {
   const isAgent = message.sender_type === 'agent';
   const attachments = (message.attachments || []) as Attachment[];
+  const [showRawContent, setShowRawContent] = useState(false);
+
+  // Check if there's raw content that differs from the displayed content
+  const hasRawContent = message.raw_content && message.raw_content !== message.content;
+
+  // Determine which content to display
+  const displayContent = showRawContent ? message.raw_content! : message.content;
 
   return (
     <div
@@ -110,9 +123,30 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
               },
             }}
           >
-            {message.content}
+            {displayContent}
           </Markdown>
         </div>
+
+        {/* Show full email toggle for messages with raw_content */}
+        {hasRawContent && (
+          <button
+            onClick={() => setShowRawContent(!showRawContent)}
+            className="mt-2 flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors"
+          >
+            <Mail className="h-3 w-3" />
+            {showRawContent ? (
+              <>
+                <span>Show cleaned version</span>
+                <ChevronUp className="h-3 w-3" />
+              </>
+            ) : (
+              <>
+                <span>Show full email</span>
+                <ChevronDown className="h-3 w-3" />
+              </>
+            )}
+          </button>
+        )}
 
         {/* Attachments */}
         {attachments.length > 0 && (
