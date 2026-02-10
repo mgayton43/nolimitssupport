@@ -10,13 +10,13 @@ interface ReturnHistoryProps {
 }
 
 // Status configuration with labels and colors
-type RMAStatus = 'requested' | 'authorized' | 'in_transit' | 'received' | 'processed' | 'completed' | 'rejected' | 'cancelled' | 'unknown';
-
-const statusConfig: Record<RMAStatus, { label: string; className: string }> = {
+const statusConfig: Record<string, { label: string; className: string }> = {
+  // Yellow/Amber - Requested
   requested: {
     label: 'Requested',
-    className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
   },
+  // Blue - Authorized & In Transit
   authorized: {
     label: 'Authorized',
     className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -25,29 +25,47 @@ const statusConfig: Record<RMAStatus, { label: string; className: string }> = {
     label: 'In Transit',
     className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   },
+  // Teal/Cyan - Delivered
+  delivered: {
+    label: 'Delivered',
+    className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+  },
+  // Purple - Partially Received & Received
+  partially_received: {
+    label: 'Partially Received',
+    className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  },
   received: {
     label: 'Received',
     className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   },
+  // Orange - Partially Processed
+  partially_processed: {
+    label: 'Partially Processed',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  },
+  // Green - Processed & Complete
   processed: {
     label: 'Processed',
     className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   },
-  completed: {
-    label: 'Completed',
+  complete: {
+    label: 'Complete',
     className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   },
+  // Gray - Canceled & Abandoned
+  canceled: {
+    label: 'Canceled',
+    className: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300',
+  },
+  abandoned: {
+    label: 'Abandoned',
+    className: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300',
+  },
+  // Red - Rejected
   rejected: {
     label: 'Rejected',
     className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  },
-  cancelled: {
-    label: 'Cancelled',
-    className: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300',
-  },
-  unknown: {
-    label: 'Unknown',
-    className: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
   },
 };
 
@@ -76,8 +94,17 @@ function formatCurrency(amount: string): string {
 }
 
 function getStatusConfig(status: string) {
-  const normalizedStatus = status.toLowerCase().replace(/[_-]/g, '_') as RMAStatus;
-  return statusConfig[normalizedStatus] || statusConfig.unknown;
+  const normalizedStatus = status.toLowerCase().replace(/[_-]/g, '_');
+
+  if (statusConfig[normalizedStatus]) {
+    return statusConfig[normalizedStatus];
+  }
+
+  // Return a default config with the original status as label
+  return {
+    label: status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' '),
+    className: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+  };
 }
 
 export function ReturnHistory({ customerEmail }: ReturnHistoryProps) {

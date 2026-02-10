@@ -42,26 +42,50 @@ export interface ReturnLogicResponse {
  * Normalize status from API to consistent format
  */
 function normalizeStatus(status: string): string {
-  const statusLower = status.toLowerCase().replace(/[_-]/g, ' ');
+  const statusLower = status.toLowerCase().replace(/[_-]/g, ' ').trim();
 
   // Map common variations to standard statuses
   const statusMap: Record<string, string> = {
+    // Requested
     'requested': 'requested',
     'pending': 'requested',
+    'new': 'requested',
+    'open': 'requested',
+    // Authorized
     'authorized': 'authorized',
     'approved': 'authorized',
+    // In Transit
     'in transit': 'in_transit',
+    'intransit': 'in_transit',
     'shipped': 'in_transit',
+    'shipping': 'in_transit',
+    // Delivered
+    'delivered': 'delivered',
+    // Partially Received
+    'partially received': 'partially_received',
+    'partial received': 'partially_received',
+    // Received
     'received': 'received',
+    // Partially Processed
+    'partially processed': 'partially_processed',
+    'partial processed': 'partially_processed',
+    // Processed
     'processing': 'processed',
     'processed': 'processed',
-    'completed': 'completed',
-    'complete': 'completed',
-    'closed': 'completed',
+    // Complete
+    'completed': 'complete',
+    'complete': 'complete',
+    'closed': 'complete',
+    'resolved': 'complete',
+    // Canceled
+    'cancelled': 'canceled',
+    'canceled': 'canceled',
+    // Abandoned
+    'abandoned': 'abandoned',
+    'expired': 'abandoned',
+    // Rejected
     'rejected': 'rejected',
     'denied': 'rejected',
-    'cancelled': 'cancelled',
-    'canceled': 'cancelled',
   };
 
   return statusMap[statusLower] || status;
@@ -160,13 +184,22 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
         rma_number: rma.rma_number,
         number: rma.number,
         status: rma.status,
+        workflowStatus: rma.workflowStatus,
+        workflow_status: rma.workflow_status,
         state: rma.state,
       });
 
+      // Determine the best ID to use for the Return Logic URL
+      const rmaId = String(rma.rlRmaId || rma.rl_rma_id || rma.rmaId || rma.rma_id || rma.id || rma._id || '');
+      // RMA number for display (may be different from ID)
+      const rmaNumber = String(rma.rmaNumber || rma.rma_number || rma.number || rma.rlRmaId || rma.id || '');
+      // Status - check multiple possible field names
+      const statusValue = rma.workflowStatus || rma.workflow_status || rma.status || rma.state || 'unknown';
+
       return {
-      id: String(rma.rlRmaId || rma.rl_rma_id || rma.rmaId || rma.rma_id || rma.id || rma._id || ''),
-      rmaNumber: String(rma.rmaNumber || rma.rma_number || rma.number || rma.rlRmaId || rma.id || ''),
-      status: normalizeStatus(String(rma.status || rma.state || 'unknown')),
+      id: rmaId,
+      rmaNumber: rmaNumber,
+      status: normalizeStatus(String(statusValue)),
       returnType: normalizeReturnType(String(rma.return_type || rma.returnType || rma.resolution_type || rma.resolutionType || rma.type || 'refund')),
       createdAt: String(rma.created_at || rma.createdAt || new Date().toISOString()),
       updatedAt: String(rma.updated_at || rma.updatedAt || rma.created_at || rma.createdAt || new Date().toISOString()),
