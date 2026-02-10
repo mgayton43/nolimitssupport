@@ -334,24 +334,35 @@ export async function POST(request: NextRequest) {
       const customerId = await getOrCreateCustomer(supabase, customerEmail, customerName);
 
       // For replies: use cleaned content (without quoted text), store raw for reference
-      const { error: messageError } = await supabase
+      console.log('=== REPLY MESSAGE DEBUG ===');
+      console.log('emailContent length:', emailContent?.length);
+      console.log('emailContent preview:', emailContent?.substring(0, 200));
+      console.log('rawEmailContent length:', rawEmailContent?.length);
+      console.log('=== END REPLY MESSAGE DEBUG ===');
+
+      const { data: replyMessageData, error: messageError } = await supabase
         .from('messages')
         .insert({
           ticket_id: existingTicket.id,
           sender_type: 'customer',
           sender_id: customerId,
-          content: emailContent, // Cleaned version (quoted content stripped)
-          raw_content: rawEmailContent, // Original for "show full email" toggle
+          content: emailContent || '(No content)', // Fallback if empty
+          raw_content: rawEmailContent || null,
           is_internal: false,
           source: 'new_email',
           source_email_id: headers.messageId,
           attachments: [],
-        });
+        })
+        .select('id')
+        .single();
 
       if (messageError) {
         console.error('Failed to create message:', messageError);
-        return NextResponse.json({ error: 'Failed to create message' }, { status: 500 });
+        console.error('Message error details:', JSON.stringify(messageError, null, 2));
+        return NextResponse.json({ error: 'Failed to create message', details: messageError.message }, { status: 500 });
       }
+
+      console.log('Reply message created with ID:', replyMessageData?.id);
 
       // Update ticket status to open if it was pending/closed
       await supabase
@@ -389,10 +400,21 @@ export async function POST(request: NextRequest) {
       // This preserves the conversation context agents need to see
       const { newContent, quotedContent } = formatEmailWithQuotedContent(rawEmailContent);
 
+      console.log('=== CONTENT FORMATTING DEBUG ===');
+      console.log('rawEmailContent length:', rawEmailContent?.length);
+      console.log('newContent:', newContent);
+      console.log('quotedContent length:', quotedContent?.length);
+      console.log('=== END CONTENT FORMATTING DEBUG ===');
+
       // Build the display content with nicely formatted quoted section
       let displayContent = newContent;
       if (quotedContent) {
         displayContent = `${newContent}\n\n---\n\n**Previous conversation:**\n\n${quotedContent}`;
+      }
+
+      // Ensure displayContent is never empty
+      if (!displayContent || !displayContent.trim()) {
+        displayContent = rawEmailContent || '(No content)';
       }
 
       // Create ticket
@@ -417,24 +439,42 @@ export async function POST(request: NextRequest) {
 
       console.log('Created ticket #', ticket.ticket_number);
 
+      // Log content before insert for debugging
+      console.log('=== MESSAGE INSERT DEBUG ===');
+      console.log('displayContent length:', displayContent?.length);
+      console.log('displayContent preview:', displayContent?.substring(0, 200));
+      console.log('rawEmailContent length:', rawEmailContent?.length);
+      console.log('=== END MESSAGE INSERT DEBUG ===');
+
       // Create initial message with full content for context
-      const { error: messageError } = await supabase
+      const { data: messageData, error: messageError } = await supabase
         .from('messages')
         .insert({
           ticket_id: ticket.id,
           sender_type: 'customer',
           sender_id: customerId,
-          content: displayContent, // Formatted with quoted content visible
-          raw_content: rawEmailContent, // Original for reference
+          content: displayContent || '(No content)', // Fallback if empty
+          raw_content: rawEmailContent || null,
           is_internal: false,
           source: 'new_email',
           source_email_id: headers.messageId,
           attachments: [],
-        });
+        })
+        .select('id')
+        .single();
 
       if (messageError) {
         console.error('Failed to create initial message:', messageError);
+        console.error('Message error details:', JSON.stringify(messageError, null, 2));
+        // Don't fail silently - return error so we know something went wrong
+        return NextResponse.json({
+          error: 'Ticket created but message failed',
+          ticketNumber: ticket.ticket_number,
+          messageError: messageError.message
+        }, { status: 500 });
       }
+
+      console.log('Message created with ID:', messageData?.id);
 
       // Apply auto-tagging rules
       await applyAutoTagRules(supabase, ticket.id, data.subject, emailContent);
