@@ -240,33 +240,32 @@ export function ReturnHistory({ customerEmail }: ReturnHistoryProps) {
                 {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-zinc-200 dark:border-zinc-700 p-2 bg-zinc-50/50 dark:bg-zinc-800/30">
-                    {/* Return reason */}
-                    {rma.reason && (
-                      <div className="mb-2 text-xs">
-                        <span className="text-zinc-500 dark:text-zinc-400">Reason: </span>
-                        <span className="text-zinc-700 dark:text-zinc-200">{rma.reason}</span>
-                      </div>
-                    )}
-
                     {/* Items */}
                     {rma.items.length > 0 && (
-                      <div className="space-y-1 mb-2">
+                      <div className="space-y-2 mb-2">
                         <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300 flex items-center gap-1">
                           <Package className="h-3 w-3" />
                           Items ({rma.items.length})
                         </div>
-                        {rma.items.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between text-xs pl-4">
-                            <span className="text-zinc-600 dark:text-zinc-300 truncate flex-1 mr-2">
-                              {item.quantity}x {item.productName}
-                              {item.variantName && (
-                                <span className="text-zinc-400"> ({item.variantName})</span>
-                              )}
-                            </span>
-                            {item.sku && (
-                              <span className="text-zinc-400 shrink-0 font-mono text-[10px]">
-                                {item.sku}
+                        {rma.items.map((item, idx) => (
+                          <div key={item.id || idx} className="pl-4 space-y-0.5">
+                            <div className="flex items-start justify-between text-xs">
+                              <span className="text-zinc-700 dark:text-zinc-200">
+                                {item.quantity}x {item.productName}
+                                {item.variantName && (
+                                  <span className="text-zinc-400"> ({item.variantName})</span>
+                                )}
                               </span>
+                            </div>
+                            {item.reason && (
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                Reason: {item.reason}
+                              </div>
+                            )}
+                            {item.reasonComment && (
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 italic">
+                                &ldquo;{item.reasonComment}&rdquo;
+                              </div>
                             )}
                           </div>
                         ))}
@@ -274,14 +273,32 @@ export function ReturnHistory({ customerEmail }: ReturnHistoryProps) {
                     )}
 
                     {/* Amount */}
-                    {(rma.refundAmount || rma.creditAmount) && (
+                    {(rma.refundAmount || rma.creditAmount || rma.exchangeAmount) && (
                       <div className="mb-2 text-xs">
-                        <span className="text-zinc-500 dark:text-zinc-400">
-                          {rma.returnType === 'refund' ? 'Refund: ' : 'Credit: '}
-                        </span>
-                        <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                          {formatCurrency(rma.refundAmount || rma.creditAmount || '0')}
-                        </span>
+                        {rma.refundAmount && Number(rma.refundAmount) > 0 && (
+                          <div>
+                            <span className="text-zinc-500 dark:text-zinc-400">Refund: </span>
+                            <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                              {formatCurrency(rma.refundAmount)}
+                            </span>
+                          </div>
+                        )}
+                        {rma.exchangeAmount && Number(rma.exchangeAmount) > 0 && (
+                          <div>
+                            <span className="text-zinc-500 dark:text-zinc-400">Exchange: </span>
+                            <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                              {formatCurrency(rma.exchangeAmount)}
+                            </span>
+                          </div>
+                        )}
+                        {rma.creditAmount && Number(rma.creditAmount) > 0 && (
+                          <div>
+                            <span className="text-zinc-500 dark:text-zinc-400">Store Credit: </span>
+                            <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                              {formatCurrency(rma.creditAmount)}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -303,9 +320,20 @@ export function ReturnHistory({ customerEmail }: ReturnHistoryProps) {
                           )}
                           <div className="flex items-center justify-between">
                             <span className="text-zinc-500 dark:text-zinc-400">Tracking #:</span>
-                            <span className="font-mono text-zinc-700 dark:text-zinc-200">
-                              {rma.trackingNumber}
-                            </span>
+                            {rma.trackingUrl ? (
+                              <a
+                                href={rma.trackingUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-mono text-blue-600 hover:underline dark:text-blue-400"
+                              >
+                                {rma.trackingNumber}
+                              </a>
+                            ) : (
+                              <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                                {rma.trackingNumber}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

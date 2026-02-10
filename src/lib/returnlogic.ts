@@ -13,6 +13,8 @@ export interface ReturnLogicRMAItem {
   quantity: number;
   sku: string | null;
   reason: string | null;
+  reasonComment: string | null;
+  returnType: string | null;
 }
 
 export interface ReturnLogicRMA {
@@ -26,8 +28,10 @@ export interface ReturnLogicRMA {
   items: ReturnLogicRMAItem[];
   refundAmount: string | null;
   creditAmount: string | null;
+  exchangeAmount: string | null;
   trackingNumber: string | null;
   trackingCarrier: string | null;
+  trackingUrl: string | null;
   orderNumber: string | null;
   customerEmail: string;
   customerName: string | null;
@@ -149,21 +153,8 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
 
     const data = await response.json();
 
-    // DEBUG: Log the full API response structure
-    console.log('=== RETURN LOGIC API RESPONSE ===');
-    console.log('Full response:', JSON.stringify(data, null, 2));
-    console.log('Response type:', typeof data);
-    console.log('Response keys:', Object.keys(data));
-
     // Handle different API response formats
     const rawRmas = data.rmas || data.data || data.results || data || [];
-
-    console.log('Raw RMAs type:', typeof rawRmas, 'isArray:', Array.isArray(rawRmas));
-    if (Array.isArray(rawRmas) && rawRmas.length > 0) {
-      console.log('First RMA object keys:', Object.keys(rawRmas[0]));
-      console.log('First RMA full object:', JSON.stringify(rawRmas[0], null, 2));
-    }
-    console.log('=== END RETURN LOGIC DEBUG ===');
 
     if (!Array.isArray(rawRmas)) {
       console.log('rawRmas is not an array, returning empty');
@@ -172,75 +163,80 @@ export async function getCustomerRMAs(email: string): Promise<ReturnLogicRespons
 
     // Transform and normalize the response
     const rmas: ReturnLogicRMA[] = rawRmas.map((rma: Record<string, unknown>) => {
-      // Log each RMA's key fields for debugging
-      console.log('Processing RMA - IDs and Status:', {
-        id: rma.id,
-        _id: rma._id,
-        rmaId: rma.rmaId,
-        rma_id: rma.rma_id,
-        rlRmaId: rma.rlRmaId,
-        rl_rma_id: rma.rl_rma_id,
-        rmaNumber: rma.rmaNumber,
-        rma_number: rma.rma_number,
-        number: rma.number,
-        status: rma.status,
-        workflowStatus: rma.workflowStatus,
-        workflow_status: rma.workflow_status,
-        state: rma.state,
-      });
-      console.log('Processing RMA - Details:', {
-        reason: rma.reason,
-        return_reason: rma.return_reason,
-        returnReason: rma.returnReason,
-        items: rma.items,
-        line_items: rma.line_items,
-        lineItems: rma.lineItems,
-        products: rma.products,
-        refund_amount: rma.refund_amount,
-        refundAmount: rma.refundAmount,
-        credit_amount: rma.credit_amount,
-        creditAmount: rma.creditAmount,
-        total: rma.total,
-        amount: rma.amount,
-        resolution_type: rma.resolution_type,
-        resolutionType: rma.resolutionType,
-        return_type: rma.return_type,
-        returnType: rma.returnType,
-      });
+      // Extract nested objects
+      const timeline = rma.timeline as Record<string, unknown> | null;
+      const totals = rma.totals as Record<string, Record<string, unknown>> | null;
+      const shippingLabel = rma.shippingLabel as Record<string, unknown> | null;
+      const rmaItems = rma.rmaItems as Record<string, unknown>[] | null;
 
-      // Determine the best ID to use for the Return Logic URL
-      const rmaId = String(rma.rlRmaId || rma.rl_rma_id || rma.rmaId || rma.rma_id || rma.id || rma._id || '');
-      // RMA number for display (may be different from ID)
-      const rmaNumber = String(rma.rmaNumber || rma.rma_number || rma.number || rma.rlRmaId || rma.id || '');
-      // Status - check multiple possible field names
-      const statusValue = rma.workflowStatus || rma.workflow_status || rma.status || rma.state || 'unknown';
+      // RMA ID for URL (rlRmaId is the correct field)
+      const rmaId = String(rma.rlRmaId || rma.id || '');
 
-      return {
-      id: rmaId,
-      rmaNumber: rmaNumber,
-      status: normalizeStatus(String(statusValue)),
-      returnType: normalizeReturnType(String(rma.return_type || rma.returnType || rma.resolution_type || rma.resolutionType || rma.type || 'refund')),
-      createdAt: String(rma.created_at || rma.createdAt || new Date().toISOString()),
-      updatedAt: String(rma.updated_at || rma.updatedAt || rma.created_at || rma.createdAt || new Date().toISOString()),
-      reason: rma.reason ? String(rma.reason) : null,
-      items: Array.isArray(rma.items || rma.line_items)
-        ? ((rma.items || rma.line_items) as Record<string, unknown>[]).map((item: Record<string, unknown>) => ({
-            id: String(item.id || ''),
-            productName: String(item.product_name || item.productName || item.name || item.title || 'Unknown Item'),
-            variantName: item.variant_name || item.variantName ? String(item.variant_name || item.variantName) : null,
+      // Status from workflowStatus
+      const statusValue = rma.workflowStatus || rma.status || 'unknown';
+
+      // Order number from orderName
+      const orderNumber = rma.orderName ? String(rma.orderName) : null;
+
+      // Created date from timeline.createDate
+      const createdAt = timeline?.createDate
+        ? String(timeline.createDate)
+        : String(rma.createdAt || rma.created_at || new Date().toISOString());
+
+      // Determine return type from items or totals
+      let returnType = 'refund';
+      if (totals?.exchange?.total && Number(totals.exchange.total) > 0) {
+        returnType = 'exchange';
+      } else if (totals?.giftCard?.total && Number(totals.giftCard.total) > 0) {
+        returnType = 'store_credit';
+      }
+
+      // Get amounts from totals
+      const refundAmount = totals?.refund?.total ? String(totals.refund.total) : null;
+      const exchangeAmount = totals?.exchange?.total ? String(totals.exchange.total) : null;
+      const creditAmount = totals?.giftCard?.total ? String(totals.giftCard.total) : null;
+
+      // Tracking info from shippingLabel
+      const trackingNumber = shippingLabel?.trackingNumber ? String(shippingLabel.trackingNumber) : null;
+      const trackingCarrier = shippingLabel?.carrier ? String(shippingLabel.carrier) : null;
+      const trackingUrl = shippingLabel?.trackingUrl ? String(shippingLabel.trackingUrl) : null;
+
+      // Map items from rmaItems array
+      const items: ReturnLogicRMAItem[] = Array.isArray(rmaItems)
+        ? rmaItems.map((item: Record<string, unknown>) => ({
+            id: String(item.id || item.rmaItemId || ''),
+            productName: String(item.name || item.productName || 'Unknown Item'),
+            variantName: item.variantName ? String(item.variantName) : null,
             quantity: Number(item.quantity) || 1,
             sku: item.sku ? String(item.sku) : null,
-            reason: item.reason ? String(item.reason) : null,
+            reason: item.returnReasonDescription ? String(item.returnReasonDescription) : null,
+            reasonComment: item.returnReasonComment ? String(item.returnReasonComment) : null,
+            returnType: item.returnType ? String(item.returnType) : null,
           }))
-        : [],
-      refundAmount: rma.refund_amount || rma.refundAmount ? String(rma.refund_amount || rma.refundAmount) : null,
-      creditAmount: rma.credit_amount || rma.creditAmount ? String(rma.credit_amount || rma.creditAmount) : null,
-      trackingNumber: rma.tracking_number || rma.trackingNumber ? String(rma.tracking_number || rma.trackingNumber) : null,
-      trackingCarrier: rma.tracking_carrier || rma.trackingCarrier || rma.carrier ? String(rma.tracking_carrier || rma.trackingCarrier || rma.carrier) : null,
-      orderNumber: rma.order_number || rma.orderNumber ? String(rma.order_number || rma.orderNumber) : null,
-      customerEmail: String(rma.customer_email || rma.customerEmail || rma.email || email),
-      customerName: rma.customer_name || rma.customerName ? String(rma.customer_name || rma.customerName) : null,
-    };
+        : [];
+
+      // Get overall reason from first item if available
+      const reason = items.length > 0 && items[0].reason ? items[0].reason : null;
+
+      return {
+        id: rmaId,
+        rmaNumber: rmaId, // Use rlRmaId as the display number
+        status: normalizeStatus(String(statusValue)),
+        returnType: normalizeReturnType(returnType),
+        createdAt,
+        updatedAt: createdAt,
+        reason,
+        items,
+        refundAmount,
+        creditAmount,
+        exchangeAmount,
+        trackingNumber,
+        trackingCarrier,
+        trackingUrl,
+        orderNumber,
+        customerEmail: String(rma.customerEmail || rma.email || email),
+        customerName: rma.customerName ? String(rma.customerName) : null,
+      };
     });
 
     // Sort by created date, most recent first
