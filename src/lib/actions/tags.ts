@@ -29,10 +29,14 @@ export async function createTag(input: CreateTagInput) {
     .single();
 
   if (error) {
+    console.error('Create tag error:', error);
     if (error.code === '23505') {
       return { error: 'A tag with this name already exists' };
     }
-    return { error: 'Failed to create tag' };
+    if (error.code === '42501') {
+      return { error: 'Permission denied. Only admins can manage tags.' };
+    }
+    return { error: `Failed to create tag: ${error.message}` };
   }
 
   revalidatePath('/settings/tags');
@@ -58,10 +62,14 @@ export async function updateTag(input: UpdateTagInput) {
     .eq('id', parsed.data.id);
 
   if (error) {
+    console.error('Update tag error:', error);
     if (error.code === '23505') {
       return { error: 'A tag with this name already exists' };
     }
-    return { error: 'Failed to update tag' };
+    if (error.code === '42501') {
+      return { error: 'Permission denied. Only admins can manage tags.' };
+    }
+    return { error: `Failed to update tag: ${error.message}` };
   }
 
   revalidatePath('/settings/tags');
@@ -79,7 +87,11 @@ export async function deleteTag(tagId: string) {
   const { error } = await supabase.from('tags').delete().eq('id', parsed.data);
 
   if (error) {
-    return { error: 'Failed to delete tag' };
+    console.error('Delete tag error:', error);
+    if (error.code === '42501') {
+      return { error: 'Permission denied. Only admins can manage tags.' };
+    }
+    return { error: `Failed to delete tag: ${error.message}` };
   }
 
   revalidatePath('/settings/tags');

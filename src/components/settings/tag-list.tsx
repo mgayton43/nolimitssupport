@@ -40,29 +40,46 @@ export function TagList({ tags }: TagListProps) {
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [selectedColor, setSelectedColor] = useState('#6B7280');
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
     const formData = new FormData(e.currentTarget);
+    const name = (formData.get('name') as string)?.trim();
     const description = (formData.get('description') as string)?.trim() || null;
 
+    if (!name) {
+      setError('Name is required');
+      return;
+    }
+
     startTransition(async () => {
+      let result;
       if (editingTag) {
-        await updateTag({
+        result = await updateTag({
           id: editingTag.id,
-          name: formData.get('name') as string,
+          name,
           color: selectedColor,
           description,
         });
       } else {
-        await createTag({
-          name: formData.get('name') as string,
+        result = await createTag({
+          name,
           color: selectedColor,
           description: description || undefined,
         });
       }
+
+      if (result && 'error' in result && result.error) {
+        setError(result.error);
+        console.error('Tag operation failed:', result.error);
+        return;
+      }
+
       setIsDialogOpen(false);
       setEditingTag(null);
+      setError(null);
     });
   };
 
@@ -76,12 +93,14 @@ export function TagList({ tags }: TagListProps) {
   const openCreateDialog = () => {
     setEditingTag(null);
     setSelectedColor('#6B7280');
+    setError(null);
     setIsDialogOpen(true);
   };
 
   const openEditDialog = (tag: Tag) => {
     setEditingTag(tag);
     setSelectedColor(tag.color);
+    setError(null);
     setIsDialogOpen(true);
   };
 
@@ -145,12 +164,20 @@ export function TagList({ tags }: TagListProps) {
         </div>
       )}
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        setIsDialogOpen(open);
+        if (!open) setError(null);
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingTag ? 'Edit Tag' : 'Create Tag'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
               <label htmlFor="name" className="text-sm font-medium">
                 Name
