@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search } from 'lucide-react';
+import { Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -14,6 +14,18 @@ import {
 import { useDebounce } from '@/lib/hooks/use-debounce';
 import { Mail, Facebook, Instagram, PenLine } from 'lucide-react';
 import type { Profile, Brand } from '@/lib/supabase/types';
+
+// Sort options with labels and indicators
+const sortOptions = [
+  { value: 'newest', label: 'Newest first', icon: ArrowDown },
+  { value: 'oldest', label: 'Oldest first', icon: ArrowUp },
+  { value: 'last_message_newest', label: 'Last message (newest)', icon: ArrowDown },
+  { value: 'last_message_oldest', label: 'Last message (oldest)', icon: ArrowUp },
+  { value: 'priority_high', label: 'Priority (high to low)', icon: ArrowDown },
+  { value: 'priority_low', label: 'Priority (low to high)', icon: ArrowUp },
+] as const;
+
+type SortOption = typeof sortOptions[number]['value'];
 
 interface TicketFiltersProps {
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
@@ -173,6 +185,31 @@ export function TicketFilters({ agents, brands }: TicketFiltersProps) {
               </div>
             </SelectItem>
           ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={searchParams.get('sort') || 'newest'}
+        onValueChange={(value) => updateFilter('sort', value)}
+      >
+        <SelectTrigger className="w-48">
+          <div className="flex items-center gap-2">
+            <ArrowUpDown className="h-4 w-4 text-zinc-400" />
+            <SelectValue placeholder="Sort by" />
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          {sortOptions.map((option) => {
+            const Icon = option.icon;
+            return (
+              <SelectItem key={option.value} value={option.value}>
+                <div className="flex items-center gap-2">
+                  <Icon className="h-3 w-3 text-zinc-400" />
+                  {option.label}
+                </div>
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
     </div>

@@ -21,7 +21,41 @@ interface PageProps {
     agent?: string;
     channel?: string;
     brand?: string;
+    sort?: string;
   }>;
+}
+
+// Priority order for sorting
+const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+
+// Helper function to sort tickets client-side (for search results)
+function sortTickets(tickets: TicketSearchResult[], sortBy: string): TicketSearchResult[] {
+  const sorted = [...tickets];
+
+  switch (sortBy) {
+    case 'newest':
+      return sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    case 'oldest':
+      return sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    case 'last_message_newest':
+      return sorted.sort((a, b) => {
+        const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime();
+        const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime();
+        return bTime - aTime;
+      });
+    case 'last_message_oldest':
+      return sorted.sort((a, b) => {
+        const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime();
+        const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime();
+        return aTime - bTime;
+      });
+    case 'priority_high':
+      return sorted.sort((a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3));
+    case 'priority_low':
+      return sorted.sort((a, b) => (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3));
+    default:
+      return sorted;
+  }
 }
 
 function getViewTitle(view: string | undefined, agentName?: string): string {
@@ -57,12 +91,14 @@ async function TicketListContent({
     agent?: string;
     channel?: string;
     brand?: string;
+    sort?: string;
   };
   agents: Pick<Profile, 'id' | 'full_name' | 'email'>[];
   tags: Tag[];
   currentUserId: string;
   isAdmin: boolean;
 }) {
+  const sortBy = searchParams.sort || 'newest';
   const supabase = await createClient();
 
   // Use enhanced search when search term is present
@@ -116,6 +152,9 @@ async function TicketListContent({
       filteredTickets = filteredTickets.filter((t) => t.brand_id === searchParams.brand);
     }
 
+    // Apply sorting to search results
+    filteredTickets = sortTickets(filteredTickets, sortBy);
+
     return <TicketList tickets={filteredTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
   }
 
@@ -130,8 +169,32 @@ async function TicketListContent({
       assigned_agent:profiles!tickets_assigned_agent_id_fkey(*),
       assigned_team:teams(*)
     `
-    )
-    .order('created_at', { ascending: false });
+    );
+
+  // Apply sorting based on sort parameter
+  switch (sortBy) {
+    case 'oldest':
+      query = query.order('created_at', { ascending: true });
+      break;
+    case 'last_message_newest':
+      query = query.order('last_message_at', { ascending: false, nullsFirst: false });
+      break;
+    case 'last_message_oldest':
+      query = query.order('last_message_at', { ascending: true, nullsFirst: false });
+      break;
+    case 'priority_high':
+      // Supabase doesn't support custom ordering, so we'll sort after fetch
+      query = query.order('created_at', { ascending: false });
+      break;
+    case 'priority_low':
+      // Supabase doesn't support custom ordering, so we'll sort after fetch
+      query = query.order('created_at', { ascending: false });
+      break;
+    case 'newest':
+    default:
+      query = query.order('created_at', { ascending: false });
+      break;
+  }
 
   // Apply view-specific filters
   if (searchParams.view === 'unassigned') {
@@ -146,7 +209,7 @@ async function TicketListContent({
     // Show snoozed tickets assigned to me
     // This view requires the snooze migration to be run
     try {
-      const { data: snoozedTickets, error: snoozedError } = await supabase
+      let snoozedQuery = supabase
         .from('tickets')
         .select(
           `
@@ -158,14 +221,39 @@ async function TicketListContent({
         )
         .eq('assigned_agent_id', currentUserId)
         .not('snoozed_until', 'is', null)
-        .gt('snoozed_until', new Date().toISOString())
-        .order('created_at', { ascending: false });
+        .gt('snoozed_until', new Date().toISOString());
+
+      // Apply sorting to snoozed query
+      if (sortBy === 'oldest') {
+        snoozedQuery = snoozedQuery.order('created_at', { ascending: true });
+      } else if (sortBy === 'last_message_newest') {
+        snoozedQuery = snoozedQuery.order('last_message_at', { ascending: false, nullsFirst: false });
+      } else if (sortBy === 'last_message_oldest') {
+        snoozedQuery = snoozedQuery.order('last_message_at', { ascending: true, nullsFirst: false });
+      } else {
+        snoozedQuery = snoozedQuery.order('created_at', { ascending: false });
+      }
+
+      const { data: snoozedTickets, error: snoozedError } = await snoozedQuery;
 
       if (snoozedError) {
         // Migration not run yet, return empty list
         return <TicketList tickets={[]} agents={agents} tags={tags} isAdmin={isAdmin} />;
       }
-      return <TicketList tickets={snoozedTickets || []} agents={agents} tags={tags} isAdmin={isAdmin} />;
+
+      // Apply priority sorting client-side if needed
+      let sortedSnoozed = snoozedTickets || [];
+      if (sortBy === 'priority_high') {
+        sortedSnoozed = [...sortedSnoozed].sort(
+          (a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3)
+        );
+      } else if (sortBy === 'priority_low') {
+        sortedSnoozed = [...sortedSnoozed].sort(
+          (a, b) => (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3)
+        );
+      }
+
+      return <TicketList tickets={sortedSnoozed} agents={agents} tags={tags} isAdmin={isAdmin} />;
     } catch {
       return <TicketList tickets={[]} agents={agents} tags={tags} isAdmin={isAdmin} />;
     }
@@ -216,7 +304,19 @@ async function TicketListContent({
     );
   }
 
-  return <TicketList tickets={tickets || []} agents={agents} tags={tags} isAdmin={isAdmin} />;
+  // Apply priority sorting client-side (Supabase doesn't support custom enum ordering)
+  let sortedTickets = tickets || [];
+  if (sortBy === 'priority_high') {
+    sortedTickets = [...sortedTickets].sort(
+      (a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3)
+    );
+  } else if (sortBy === 'priority_low') {
+    sortedTickets = [...sortedTickets].sort(
+      (a, b) => (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3)
+    );
+  }
+
+  return <TicketList tickets={sortedTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
 }
 
 function TicketListSkeleton() {

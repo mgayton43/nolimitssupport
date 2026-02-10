@@ -108,6 +108,7 @@ export interface Ticket {
   external_id: string | null;
   imported_at: string | null;
   reference_id: string | null; // Email Message-ID for threading
+  last_message_at: string | null; // Timestamp of most recent message
   created_at: string;
   updated_at: string;
   customer?: Customer | null;

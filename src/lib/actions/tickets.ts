@@ -113,6 +113,7 @@ type SearchTicketRow = {
   brand_id: string | null;
   first_response_at: string | null;
   resolved_at: string | null;
+  last_message_at: string | null;
   created_at: string;
   updated_at: string;
   match_field: string;
@@ -511,6 +512,7 @@ export async function searchTickets(
     external_id: null,
     imported_at: null,
     reference_id: null,
+    last_message_at: row.last_message_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
     match_field: row.match_field as MatchField,
