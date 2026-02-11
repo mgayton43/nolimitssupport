@@ -55,10 +55,12 @@ export function TicketConversation({ messages, customer, agents }: TicketConvers
           // Agent message - look up agent from profiles
           if (message.sender_id) {
             const agent = agents.get(message.sender_id);
-            senderName = agent?.full_name || agent?.email || null;
+            // Only use full_name for display, not email (emails look bad as names)
+            // If no full_name, will fall back to "Agent" in the component
+            senderName = agent?.full_name || null;
             senderAvatar = agent?.avatar_url || null;
           }
-          // If no sender_id, senderName stays null and will show "Agent"
+          // If no sender_id or no full_name, senderName stays null -> shows "Agent"
         }
 
         return (
