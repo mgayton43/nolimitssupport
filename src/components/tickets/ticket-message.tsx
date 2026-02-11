@@ -13,6 +13,7 @@ import {
   User,
   Headphones,
   Megaphone,
+  MessageSquareReply,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -204,17 +205,22 @@ function splitQuotedContent(content: string): {
   quoted: string | null;
   isMarketingEmail: boolean;
 } {
+  const normalizedContent = content
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
   // Common patterns for quoted content
   const patterns = [
     /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(Previous conversation:[\s\S]*)$/i,
-    /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(On .+ wrote:[\s\S]*)$/i,
+    /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(On [\s\S]{0,320}?\s+wrote:[\s\S]*)$/i,
+    /^([\s\S]*?)(\n\s*On [\s\S]{0,320}?\s+wrote:[\s\S]*)$/i,
     /^([\s\S]*?)((?:^>.*\n?)+)/m,
     /^([\s\S]*?)(\n-{3,}\s*Original Message\s*-{3,}[\s\S]*)$/i,
     /^([\s\S]*?)(\n-{3,}\s*Forwarded message\s*-{3,}[\s\S]*)$/i,
   ];
 
   for (const pattern of patterns) {
-    const match = content.match(pattern);
+    const match = normalizedContent.match(pattern);
     if (match && match[1] && match[2]) {
       const rawMain = match[1].trim();
       const rawQuoted = match[2].trim();
@@ -239,7 +245,7 @@ function splitQuotedContent(content: string): {
   }
 
   // No quoted content found - clean the main content
-  const { cleaned, noiseRemoved } = cleanMarketingContent(content);
+  const { cleaned, noiseRemoved } = cleanMarketingContent(normalizedContent);
   const isMarketingEmail = noiseRemoved > 5;
 
   return { main: cleaned, quoted: null, isMarketingEmail };
@@ -250,18 +256,42 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
   const isInternal = message.is_internal;
   const attachments = (message.attachments || []) as Attachment[];
   const [showRawContent, setShowRawContent] = useState(false);
-  const [showQuoted, setShowQuoted] = useState(false);
 
   // Check if there's raw content that differs from the displayed content
   const hasRawContent = message.raw_content && message.raw_content !== message.content;
 
-  // Determine which content to display
-  const baseContent = showRawContent ? message.raw_content! : message.content;
+  const normalizedDisplayContent = useMemo(
+    () =>
+      (message.content || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n'),
+    [message.content]
+  );
 
-  // Split into main and quoted content, cleaning marketing noise
-  const { main: mainContent, quoted: quotedContent, isMarketingEmail } = useMemo(
-    () => splitQuotedContent(baseContent),
-    [baseContent]
+  // For customer messages, strip quoted content entirely (agent replies already exist as separate messages)
+  // For agent messages, show full content as-is
+  const { main: parsedMain, quoted: hasQuotedContent, isMarketingEmail } = useMemo(
+    () => splitQuotedContent(normalizedDisplayContent),
+    [normalizedDisplayContent]
+  );
+
+  const mainContent = useMemo(() => {
+    if (showRawContent && message.raw_content) {
+      // Show raw content but still strip quoted portions
+      const { main: rawMain } = splitQuotedContent(message.raw_content);
+      return rawMain;
+    }
+
+    // For customer messages, use the stripped main content (no quoted replies)
+    // For agent messages, show the full cleaned content
+    if (isAgent) {
+      const { cleaned } = cleanMarketingContent(normalizedDisplayContent);
+      return cleaned;
+    }
+
+    // Customer message - use parsedMain which has quoted content stripped
+    return parsedMain;
+  }, [showRawContent, message.raw_content, parsedMain, normalizedDisplayContent, isAgent]
   );
 
   // Card styling based on sender type
@@ -327,10 +357,16 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
                 Merged
               </Badge>
             )}
-            {isMarketingEmail && !quotedContent && (
+            {isMarketingEmail && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-700">
                 <Megaphone className="h-3 w-3 mr-1" />
                 Reply to marketing
+              </Badge>
+            )}
+            {hasQuotedContent && !isAgent && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-zinc-500 border-zinc-300 dark:text-zinc-400 dark:border-zinc-600">
+                <MessageSquareReply className="h-3 w-3 mr-1" />
+                Reply
               </Badge>
             )}
           </div>
@@ -380,52 +416,7 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
           </Markdown>
         </div>
 
-        {/* Quoted/Previous content (collapsed by default) */}
-        {quotedContent && (
-          <div className="mt-3">
-            {isMarketingEmail ? (
-              // Marketing email - show simple message with optional expand
-              <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                <Megaphone className="h-3 w-3" />
-                <span>Customer replied to a marketing email</span>
-                <button
-                  onClick={() => setShowQuoted(!showQuoted)}
-                  className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors underline"
-                >
-                  {showQuoted ? 'Hide' : 'View original'}
-                </button>
-              </div>
-            ) : (
-              // Regular quoted content
-              <button
-                onClick={() => setShowQuoted(!showQuoted)}
-                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors"
-              >
-                {showQuoted ? (
-                  <>
-                    <ChevronUp className="h-3 w-3" />
-                    <span>Hide quoted email</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3" />
-                    <span>Show quoted email</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            {showQuoted && (
-              <div className="mt-2 max-h-64 overflow-y-auto rounded border-l-2 border-zinc-300 bg-zinc-50 pl-3 pr-3 py-2 dark:border-zinc-600 dark:bg-zinc-800/50">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400 prose prose-xs prose-zinc dark:prose-invert max-w-none [&_a]:text-zinc-500 [&_a]:no-underline">
-                  <Markdown rehypePlugins={[rehypeRaw]}>
-                    {quotedContent}
-                  </Markdown>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Quoted content is stripped from customer messages since agent replies exist as separate messages */}
 
         {/* Show full email toggle for messages with raw_content */}
         {hasRawContent && (

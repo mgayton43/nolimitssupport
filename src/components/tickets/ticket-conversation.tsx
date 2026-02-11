@@ -38,6 +38,8 @@ export function TicketConversation({ messages, customer, agents }: TicketConvers
     );
   }
 
+  // Messages should already be in chronological order from the database
+  // Just display each message as its own card
   return (
     <div ref={containerRef} className="space-y-4 px-4 py-6">
       {messages.map((message) => {
