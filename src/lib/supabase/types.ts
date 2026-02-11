@@ -137,6 +137,7 @@ export type MatchField =
 
 export interface TicketSearchResult extends TicketWithRelations {
   match_field?: MatchField;
+  is_unread?: boolean;
 }
 
 export interface Message {
@@ -207,6 +208,14 @@ export interface TicketPresence {
   created_at: string;
 }
 
+export interface TicketRead {
+  ticket_id: string;
+  user_id: string;
+  last_read_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -264,6 +273,11 @@ export interface Database {
         Row: TicketPresence;
         Insert: Omit<TicketPresence, 'id' | 'created_at'>;
         Update: Partial<Omit<TicketPresence, 'id' | 'created_at'>>;
+      };
+      ticket_reads: {
+        Row: TicketRead;
+        Insert: Omit<TicketRead, 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<TicketRead, 'ticket_id' | 'user_id' | 'created_at'>>;
       };
       resources: {
         Row: Resource;
