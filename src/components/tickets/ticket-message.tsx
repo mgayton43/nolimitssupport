@@ -12,6 +12,7 @@ import {
   Mail,
   User,
   Headphones,
+  Megaphone,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -41,29 +42,158 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Check if a URL is a tracking/redirect URL
+function isTrackingUrl(url: string): boolean {
+  const trackingPatterns = [
+    /klclick\.com/i,
+    /klaviyo/i,
+    /utm_/i,
+    /click\./i,
+    /track\./i,
+    /trk\./i,
+    /ctrk\./i,
+    /redirect/i,
+    /mailchimp/i,
+    /sendgrid/i,
+    /constantcontact/i,
+    /campaign-archive/i,
+    /list-manage/i,
+    /email\.mg\./i,
+    /click\.pstmrk/i,
+    /mandrillapp/i,
+  ];
+  return trackingPatterns.some(pattern => pattern.test(url));
+}
+
+// Check if a line is marketing noise
+function isMarketingNoiseLine(line: string): boolean {
+  const trimmed = line.trim();
+
+  // Empty lines are fine
+  if (!trimmed) return false;
+
+  // Image placeholders
+  if (/^\[image:\s*[^\]]*\]$/i.test(trimmed)) return true;
+
+  // Unsubscribe footers
+  if (/unsubscribe|opt.out|email.preferences|manage.*subscription/i.test(trimmed)) return true;
+
+  // Lines that are just tracking URLs
+  if (/^https?:\/\//.test(trimmed) && isTrackingUrl(trimmed)) return true;
+  if (/^\[.*\]\(https?:\/\/[^)]+\)$/.test(trimmed) && isTrackingUrl(trimmed)) return true;
+
+  // View in browser links
+  if (/view.*in.*browser|view.*online|web.*version/i.test(trimmed)) return true;
+
+  // Copyright/legal footers
+  if (/^©|copyright|all rights reserved/i.test(trimmed)) return true;
+
+  // Address footers (common in marketing emails)
+  if (/^\d+\s+\w+\s+(street|st|avenue|ave|road|rd|blvd|drive|dr)/i.test(trimmed)) return true;
+
+  return false;
+}
+
+// Clean up quoted content from marketing emails
+function cleanQuotedContent(content: string): { cleaned: string; isMarketingEmail: boolean } {
+  const lines = content.split('\n');
+  const cleanedLines: string[] = [];
+  let marketingIndicators = 0;
+  let totalLines = 0;
+
+  for (const line of lines) {
+    totalLines++;
+
+    if (isMarketingNoiseLine(line)) {
+      marketingIndicators++;
+      continue; // Skip this line
+    }
+
+    // Check for tracking URLs in the line and clean them
+    let cleanedLine = line;
+
+    // Replace tracking URLs with just "Link" or remove them
+    cleanedLine = cleanedLine.replace(
+      /\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
+      (match, text, url) => {
+        if (isTrackingUrl(url)) {
+          return text ? `[${text}]` : '';
+        }
+        return match;
+      }
+    );
+
+    // Remove standalone tracking URLs
+    cleanedLine = cleanedLine.replace(
+      /https?:\/\/\S+/g,
+      (url) => isTrackingUrl(url) ? '' : url
+    );
+
+    // Clean up multiple spaces
+    cleanedLine = cleanedLine.replace(/\s{2,}/g, ' ').trim();
+
+    if (cleanedLine || line.trim() === '') {
+      cleanedLines.push(cleanedLine);
+    }
+  }
+
+  // Remove consecutive empty lines (more than 2)
+  const finalLines: string[] = [];
+  let emptyCount = 0;
+  for (const line of cleanedLines) {
+    if (line.trim() === '') {
+      emptyCount++;
+      if (emptyCount <= 2) {
+        finalLines.push(line);
+      }
+    } else {
+      emptyCount = 0;
+      finalLines.push(line);
+    }
+  }
+
+  const cleaned = finalLines.join('\n').trim();
+
+  // Determine if this looks like a marketing email
+  // High ratio of noise lines or mostly empty after cleaning
+  const isMarketingEmail =
+    (totalLines > 5 && marketingIndicators / totalLines > 0.3) ||
+    (cleaned.length < 50 && marketingIndicators > 3) ||
+    cleaned.split('\n').filter(l => l.trim()).length < 3;
+
+  return { cleaned, isMarketingEmail };
+}
+
 // Split content into main message and quoted/previous content
-function splitQuotedContent(content: string): { main: string; quoted: string | null } {
+function splitQuotedContent(content: string): {
+  main: string;
+  quoted: string | null;
+  isMarketingEmail: boolean;
+} {
   // Common patterns for quoted content
   const patterns = [
     /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(Previous conversation:[\s\S]*)$/i,
     /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(On .+ wrote:[\s\S]*)$/i,
     /^([\s\S]*?)((?:^>.*\n?)+)/m,
     /^([\s\S]*?)(\n-{3,}\s*Original Message\s*-{3,}[\s\S]*)$/i,
+    /^([\s\S]*?)(\n-{3,}\s*Forwarded message\s*-{3,}[\s\S]*)$/i,
   ];
 
   for (const pattern of patterns) {
     const match = content.match(pattern);
     if (match && match[1] && match[2]) {
       const main = match[1].trim();
-      const quoted = match[2].trim();
+      const rawQuoted = match[2].trim();
+
       // Only split if main content exists and quoted is substantial
-      if (main.length > 0 && quoted.length > 50) {
-        return { main, quoted };
+      if (main.length > 0 && rawQuoted.length > 50) {
+        const { cleaned, isMarketingEmail } = cleanQuotedContent(rawQuoted);
+        return { main, quoted: cleaned, isMarketingEmail };
       }
     }
   }
 
-  return { main: content, quoted: null };
+  return { main: content, quoted: null, isMarketingEmail: false };
 }
 
 export function TicketMessage({ message, senderName, senderAvatar }: TicketMessageProps) {
@@ -80,7 +210,7 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
   const baseContent = showRawContent ? message.raw_content! : message.content;
 
   // Split into main and quoted content
-  const { main: mainContent, quoted: quotedContent } = useMemo(
+  const { main: mainContent, quoted: quotedContent, isMarketingEmail } = useMemo(
     () => splitQuotedContent(baseContent),
     [baseContent]
   );
@@ -198,26 +328,41 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
         {/* Quoted/Previous content (collapsed by default) */}
         {quotedContent && (
           <div className="mt-3">
-            <button
-              onClick={() => setShowQuoted(!showQuoted)}
-              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors"
-            >
-              {showQuoted ? (
-                <>
-                  <ChevronUp className="h-3 w-3" />
-                  <span>Hide previous conversation</span>
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-3 w-3" />
-                  <span>Show previous conversation</span>
-                </>
-              )}
-            </button>
+            {isMarketingEmail ? (
+              // Marketing email - show simple message with optional expand
+              <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <Megaphone className="h-3 w-3" />
+                <span>Customer replied to a marketing email</span>
+                <button
+                  onClick={() => setShowQuoted(!showQuoted)}
+                  className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors underline"
+                >
+                  {showQuoted ? 'Hide' : 'View original'}
+                </button>
+              </div>
+            ) : (
+              // Regular quoted content
+              <button
+                onClick={() => setShowQuoted(!showQuoted)}
+                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors"
+              >
+                {showQuoted ? (
+                  <>
+                    <ChevronUp className="h-3 w-3" />
+                    <span>Hide quoted email</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3 w-3" />
+                    <span>Show quoted email</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {showQuoted && (
-              <div className="mt-2 rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400 prose prose-xs prose-zinc dark:prose-invert max-w-none">
+              <div className="mt-2 max-h-64 overflow-y-auto rounded border-l-2 border-zinc-300 bg-zinc-50 pl-3 pr-3 py-2 dark:border-zinc-600 dark:bg-zinc-800/50">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400 prose prose-xs prose-zinc dark:prose-invert max-w-none [&_a]:text-zinc-500 [&_a]:no-underline">
                   <Markdown rehypePlugins={[rehypeRaw]}>
                     {quotedContent}
                   </Markdown>
