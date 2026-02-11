@@ -48,11 +48,11 @@ function isTrackingUrl(url: string): boolean {
     /klclick\.com/i,
     /klaviyo/i,
     /utm_/i,
-    /click\./i,
-    /track\./i,
-    /trk\./i,
-    /ctrk\./i,
-    /redirect/i,
+    /\/click\//i,
+    /\/track\//i,
+    /\/trk\//i,
+    /\/ctrk\//i,
+    /\/redirect\//i,
     /mailchimp/i,
     /sendgrid/i,
     /constantcontact/i,
@@ -61,7 +61,17 @@ function isTrackingUrl(url: string): boolean {
     /email\.mg\./i,
     /click\.pstmrk/i,
     /mandrillapp/i,
+    /\/_t\/c\//i,        // Strikeman and similar tracking paths
+    /\/_t\/v\d+\//i,     // Versioned tracking paths like /_t/v3/
+    /\/e\/c\//i,         // Email click tracking
+    /\/l\/[a-zA-Z0-9]+/i, // Link tracking with IDs
   ];
+
+  // Also check for very long random-looking URLs (tracking URLs tend to have long base64/hex strings)
+  if (url.length > 100 && /[A-Za-z0-9]{30,}/.test(url)) {
+    return true;
+  }
+
   return trackingPatterns.some(pattern => pattern.test(url));
 }
 
@@ -69,21 +79,20 @@ function isTrackingUrl(url: string): boolean {
 function isMarketingNoiseLine(line: string): boolean {
   const trimmed = line.trim();
 
-  // Empty lines are fine
+  // Empty lines are fine (we'll handle consecutive empties elsewhere)
   if (!trimmed) return false;
 
-  // Image placeholders
-  if (/^\[image:\s*[^\]]*\]$/i.test(trimmed)) return true;
+  // Image placeholders - match anywhere in line
+  if (/\[image:[^\]]*\]/i.test(trimmed)) return true;
 
   // Unsubscribe footers
-  if (/unsubscribe|opt.out|email.preferences|manage.*subscription/i.test(trimmed)) return true;
+  if (/unsubscribe|opt.out|opt-out|email.preferences|manage.*subscription|no longer wish to receive/i.test(trimmed)) return true;
 
-  // Lines that are just tracking URLs
-  if (/^https?:\/\//.test(trimmed) && isTrackingUrl(trimmed)) return true;
-  if (/^\[.*\]\(https?:\/\/[^)]+\)$/.test(trimmed) && isTrackingUrl(trimmed)) return true;
+  // Lines that are just URLs (tracking or not - if it's JUST a URL, it's noise)
+  if (/^https?:\/\/\S+$/.test(trimmed)) return true;
 
   // View in browser links
-  if (/view.*in.*browser|view.*online|web.*version/i.test(trimmed)) return true;
+  if (/view.*in.*browser|view.*online|web.*version|having trouble viewing/i.test(trimmed)) return true;
 
   // Copyright/legal footers
   if (/^©|copyright|all rights reserved/i.test(trimmed)) return true;
@@ -91,50 +100,73 @@ function isMarketingNoiseLine(line: string): boolean {
   // Address footers (common in marketing emails)
   if (/^\d+\s+\w+\s+(street|st|avenue|ave|road|rd|blvd|drive|dr)/i.test(trimmed)) return true;
 
+  // Social media links section
+  if (/^(facebook|twitter|instagram|linkedin|youtube|tiktok)\s*$/i.test(trimmed)) return true;
+
+  // Lines that are mostly just markdown links with tracking URLs
+  const linkMatches = trimmed.match(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g);
+  if (linkMatches && linkMatches.length > 0) {
+    // Check if ALL links in the line are tracking URLs
+    const allTracking = linkMatches.every(match => {
+      const urlMatch = match.match(/\((https?:\/\/[^)]+)\)/);
+      return urlMatch && isTrackingUrl(urlMatch[1]);
+    });
+    // If the line is mostly just tracking links, it's noise
+    if (allTracking && trimmed.replace(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '').trim().length < 20) {
+      return true;
+    }
+  }
+
   return false;
 }
 
-// Clean up quoted content from marketing emails
-function cleanQuotedContent(content: string): { cleaned: string; isMarketingEmail: boolean } {
+// Clean marketing noise from content
+function cleanMarketingContent(content: string): { cleaned: string; noiseRemoved: number } {
   const lines = content.split('\n');
   const cleanedLines: string[] = [];
-  let marketingIndicators = 0;
-  let totalLines = 0;
+  let noiseRemoved = 0;
 
   for (const line of lines) {
-    totalLines++;
-
+    // Check if entire line is noise
     if (isMarketingNoiseLine(line)) {
-      marketingIndicators++;
-      continue; // Skip this line
+      noiseRemoved++;
+      continue;
     }
 
-    // Check for tracking URLs in the line and clean them
     let cleanedLine = line;
 
-    // Replace tracking URLs with just "Link" or remove them
+    // Remove [image: ...] placeholders from within lines
+    cleanedLine = cleanedLine.replace(/\[image:[^\]]*\]/gi, '');
+
+    // Remove standalone tracking URLs
+    cleanedLine = cleanedLine.replace(
+      /https?:\/\/\S+/g,
+      (url) => {
+        if (isTrackingUrl(url)) {
+          noiseRemoved++;
+          return '';
+        }
+        return url;
+      }
+    );
+
+    // Clean markdown links with tracking URLs - keep text, remove URL
     cleanedLine = cleanedLine.replace(
       /\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
       (match, text, url) => {
         if (isTrackingUrl(url)) {
-          return text ? `[${text}]` : '';
+          noiseRemoved++;
+          // Keep the link text if it's meaningful
+          return text && text.length > 2 ? text : '';
         }
         return match;
       }
     );
 
-    // Remove standalone tracking URLs
-    cleanedLine = cleanedLine.replace(
-      /https?:\/\/\S+/g,
-      (url) => isTrackingUrl(url) ? '' : url
-    );
-
     // Clean up multiple spaces
     cleanedLine = cleanedLine.replace(/\s{2,}/g, ' ').trim();
 
-    if (cleanedLine || line.trim() === '') {
-      cleanedLines.push(cleanedLine);
-    }
+    cleanedLines.push(cleanedLine);
   }
 
   // Remove consecutive empty lines (more than 2)
@@ -143,7 +175,7 @@ function cleanQuotedContent(content: string): { cleaned: string; isMarketingEmai
   for (const line of cleanedLines) {
     if (line.trim() === '') {
       emptyCount++;
-      if (emptyCount <= 2) {
+      if (emptyCount <= 1) {
         finalLines.push(line);
       }
     } else {
@@ -152,16 +184,18 @@ function cleanQuotedContent(content: string): { cleaned: string; isMarketingEmai
     }
   }
 
-  const cleaned = finalLines.join('\n').trim();
+  // Remove leading/trailing empty lines
+  while (finalLines.length > 0 && finalLines[0].trim() === '') {
+    finalLines.shift();
+  }
+  while (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() === '') {
+    finalLines.pop();
+  }
 
-  // Determine if this looks like a marketing email
-  // High ratio of noise lines or mostly empty after cleaning
-  const isMarketingEmail =
-    (totalLines > 5 && marketingIndicators / totalLines > 0.3) ||
-    (cleaned.length < 50 && marketingIndicators > 3) ||
-    cleaned.split('\n').filter(l => l.trim()).length < 3;
-
-  return { cleaned, isMarketingEmail };
+  return {
+    cleaned: finalLines.join('\n').trim(),
+    noiseRemoved
+  };
 }
 
 // Split content into main message and quoted/previous content
@@ -182,18 +216,33 @@ function splitQuotedContent(content: string): {
   for (const pattern of patterns) {
     const match = content.match(pattern);
     if (match && match[1] && match[2]) {
-      const main = match[1].trim();
+      const rawMain = match[1].trim();
       const rawQuoted = match[2].trim();
 
       // Only split if main content exists and quoted is substantial
-      if (main.length > 0 && rawQuoted.length > 50) {
-        const { cleaned, isMarketingEmail } = cleanQuotedContent(rawQuoted);
-        return { main, quoted: cleaned, isMarketingEmail };
+      if (rawMain.length > 0 && rawQuoted.length > 50) {
+        // Clean both main and quoted
+        const { cleaned: cleanedMain, noiseRemoved: mainNoise } = cleanMarketingContent(rawMain);
+        const { cleaned: cleanedQuoted, noiseRemoved: quotedNoise } = cleanMarketingContent(rawQuoted);
+
+        const totalNoise = mainNoise + quotedNoise;
+        const isMarketingEmail = totalNoise > 5 ||
+          (cleanedQuoted.length < 50 && quotedNoise > 2);
+
+        return {
+          main: cleanedMain,
+          quoted: cleanedQuoted.length > 10 ? cleanedQuoted : null,
+          isMarketingEmail
+        };
       }
     }
   }
 
-  return { main: content, quoted: null, isMarketingEmail: false };
+  // No quoted content found - clean the main content
+  const { cleaned, noiseRemoved } = cleanMarketingContent(content);
+  const isMarketingEmail = noiseRemoved > 5;
+
+  return { main: cleaned, quoted: null, isMarketingEmail };
 }
 
 export function TicketMessage({ message, senderName, senderAvatar }: TicketMessageProps) {
@@ -209,7 +258,7 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
   // Determine which content to display
   const baseContent = showRawContent ? message.raw_content! : message.content;
 
-  // Split into main and quoted content
+  // Split into main and quoted content, cleaning marketing noise
   const { main: mainContent, quoted: quotedContent, isMarketingEmail } = useMemo(
     () => splitQuotedContent(baseContent),
     [baseContent]
@@ -276,6 +325,12 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
             {message.source === 'merge' && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-purple-600 border-purple-300 dark:text-purple-400 dark:border-purple-700">
                 Merged
+              </Badge>
+            )}
+            {isMarketingEmail && !quotedContent && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-700">
+                <Megaphone className="h-3 w-3 mr-1" />
+                Reply to marketing
               </Badge>
             )}
           </div>
