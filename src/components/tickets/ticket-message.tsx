@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import {
   File,
   FileText,
@@ -12,8 +12,6 @@ import {
   Mail,
   User,
   Headphones,
-  Megaphone,
-  MessageSquareReply,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -43,256 +41,19 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Check if a URL is a tracking/redirect URL
-function isTrackingUrl(url: string): boolean {
-  const trackingPatterns = [
-    /klclick\.com/i,
-    /klaviyo/i,
-    /utm_/i,
-    /\/click\//i,
-    /\/track\//i,
-    /\/trk\//i,
-    /\/ctrk\//i,
-    /\/redirect\//i,
-    /mailchimp/i,
-    /sendgrid/i,
-    /constantcontact/i,
-    /campaign-archive/i,
-    /list-manage/i,
-    /email\.mg\./i,
-    /click\.pstmrk/i,
-    /mandrillapp/i,
-    /\/_t\/c\//i,        // Strikeman and similar tracking paths
-    /\/_t\/v\d+\//i,     // Versioned tracking paths like /_t/v3/
-    /\/e\/c\//i,         // Email click tracking
-    /\/l\/[a-zA-Z0-9]+/i, // Link tracking with IDs
-  ];
-
-  // Also check for very long random-looking URLs (tracking URLs tend to have long base64/hex strings)
-  if (url.length > 100 && /[A-Za-z0-9]{30,}/.test(url)) {
-    return true;
-  }
-
-  return trackingPatterns.some(pattern => pattern.test(url));
-}
-
-// Check if a line is marketing noise
-function isMarketingNoiseLine(line: string): boolean {
-  const trimmed = line.trim();
-
-  // Empty lines are fine (we'll handle consecutive empties elsewhere)
-  if (!trimmed) return false;
-
-  // Image placeholders - match anywhere in line
-  if (/\[image:[^\]]*\]/i.test(trimmed)) return true;
-
-  // Unsubscribe footers
-  if (/unsubscribe|opt.out|opt-out|email.preferences|manage.*subscription|no longer wish to receive/i.test(trimmed)) return true;
-
-  // Lines that are just URLs (tracking or not - if it's JUST a URL, it's noise)
-  if (/^https?:\/\/\S+$/.test(trimmed)) return true;
-
-  // View in browser links
-  if (/view.*in.*browser|view.*online|web.*version|having trouble viewing/i.test(trimmed)) return true;
-
-  // Copyright/legal footers
-  if (/^©|copyright|all rights reserved/i.test(trimmed)) return true;
-
-  // Address footers (common in marketing emails)
-  if (/^\d+\s+\w+\s+(street|st|avenue|ave|road|rd|blvd|drive|dr)/i.test(trimmed)) return true;
-
-  // Social media links section
-  if (/^(facebook|twitter|instagram|linkedin|youtube|tiktok)\s*$/i.test(trimmed)) return true;
-
-  // Lines that are mostly just markdown links with tracking URLs
-  const linkMatches = trimmed.match(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g);
-  if (linkMatches && linkMatches.length > 0) {
-    // Check if ALL links in the line are tracking URLs
-    const allTracking = linkMatches.every(match => {
-      const urlMatch = match.match(/\((https?:\/\/[^)]+)\)/);
-      return urlMatch && isTrackingUrl(urlMatch[1]);
-    });
-    // If the line is mostly just tracking links, it's noise
-    if (allTracking && trimmed.replace(/\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '').trim().length < 20) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-// Clean marketing noise from content
-function cleanMarketingContent(content: string): { cleaned: string; noiseRemoved: number } {
-  const lines = content.split('\n');
-  const cleanedLines: string[] = [];
-  let noiseRemoved = 0;
-
-  for (const line of lines) {
-    // Check if entire line is noise
-    if (isMarketingNoiseLine(line)) {
-      noiseRemoved++;
-      continue;
-    }
-
-    let cleanedLine = line;
-
-    // Remove [image: ...] placeholders from within lines
-    cleanedLine = cleanedLine.replace(/\[image:[^\]]*\]/gi, '');
-
-    // Remove standalone tracking URLs
-    cleanedLine = cleanedLine.replace(
-      /https?:\/\/\S+/g,
-      (url) => {
-        if (isTrackingUrl(url)) {
-          noiseRemoved++;
-          return '';
-        }
-        return url;
-      }
-    );
-
-    // Clean markdown links with tracking URLs - keep text, remove URL
-    cleanedLine = cleanedLine.replace(
-      /\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
-      (match, text, url) => {
-        if (isTrackingUrl(url)) {
-          noiseRemoved++;
-          // Keep the link text if it's meaningful
-          return text && text.length > 2 ? text : '';
-        }
-        return match;
-      }
-    );
-
-    // Clean up multiple spaces
-    cleanedLine = cleanedLine.replace(/\s{2,}/g, ' ').trim();
-
-    cleanedLines.push(cleanedLine);
-  }
-
-  // Remove consecutive empty lines (more than 2)
-  const finalLines: string[] = [];
-  let emptyCount = 0;
-  for (const line of cleanedLines) {
-    if (line.trim() === '') {
-      emptyCount++;
-      if (emptyCount <= 1) {
-        finalLines.push(line);
-      }
-    } else {
-      emptyCount = 0;
-      finalLines.push(line);
-    }
-  }
-
-  // Remove leading/trailing empty lines
-  while (finalLines.length > 0 && finalLines[0].trim() === '') {
-    finalLines.shift();
-  }
-  while (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() === '') {
-    finalLines.pop();
-  }
-
-  return {
-    cleaned: finalLines.join('\n').trim(),
-    noiseRemoved
-  };
-}
-
-// Split content into main message and quoted/previous content
-function splitQuotedContent(content: string): {
-  main: string;
-  quoted: string | null;
-  isMarketingEmail: boolean;
-} {
-  const normalizedContent = content
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n');
-
-  // Common patterns for quoted content
-  const patterns = [
-    /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(Previous conversation:[\s\S]*)$/i,
-    /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(On [\s\S]{0,320}?\s+wrote:[\s\S]*)$/i,
-    /^([\s\S]*?)(\n\s*On [\s\S]{0,320}?\s+wrote:[\s\S]*)$/i,
-    /^([\s\S]*?)((?:^>.*\n?)+)/m,
-    /^([\s\S]*?)(\n-{3,}\s*Original Message\s*-{3,}[\s\S]*)$/i,
-    /^([\s\S]*?)(\n-{3,}\s*Forwarded message\s*-{3,}[\s\S]*)$/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = normalizedContent.match(pattern);
-    if (match && match[1] && match[2]) {
-      const rawMain = match[1].trim();
-      const rawQuoted = match[2].trim();
-
-      // Only split if main content exists and quoted is substantial
-      if (rawMain.length > 0 && rawQuoted.length > 50) {
-        // Clean both main and quoted
-        const { cleaned: cleanedMain, noiseRemoved: mainNoise } = cleanMarketingContent(rawMain);
-        const { cleaned: cleanedQuoted, noiseRemoved: quotedNoise } = cleanMarketingContent(rawQuoted);
-
-        const totalNoise = mainNoise + quotedNoise;
-        const isMarketingEmail = totalNoise > 5 ||
-          (cleanedQuoted.length < 50 && quotedNoise > 2);
-
-        return {
-          main: cleanedMain,
-          quoted: cleanedQuoted.length > 10 ? cleanedQuoted : null,
-          isMarketingEmail
-        };
-      }
-    }
-  }
-
-  // No quoted content found - clean the main content
-  const { cleaned, noiseRemoved } = cleanMarketingContent(normalizedContent);
-  const isMarketingEmail = noiseRemoved > 5;
-
-  return { main: cleaned, quoted: null, isMarketingEmail };
-}
-
 export function TicketMessage({ message, senderName, senderAvatar }: TicketMessageProps) {
   const isAgent = message.sender_type === 'agent';
   const isInternal = message.is_internal;
   const attachments = (message.attachments || []) as Attachment[];
-  const [showRawContent, setShowRawContent] = useState(false);
+  const [showFullEmail, setShowFullEmail] = useState(false);
 
   // Check if there's raw content that differs from the displayed content
   const hasRawContent = message.raw_content && message.raw_content !== message.content;
 
-  const normalizedDisplayContent = useMemo(
-    () =>
-      (message.content || '')
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n'),
-    [message.content]
-  );
-
-  // For customer messages, strip quoted content entirely (agent replies already exist as separate messages)
-  // For agent messages, show full content as-is
-  const { main: parsedMain, quoted: hasQuotedContent, isMarketingEmail } = useMemo(
-    () => splitQuotedContent(normalizedDisplayContent),
-    [normalizedDisplayContent]
-  );
-
-  const mainContent = useMemo(() => {
-    if (showRawContent && message.raw_content) {
-      // Show raw content but still strip quoted portions
-      const { main: rawMain } = splitQuotedContent(message.raw_content);
-      return rawMain;
-    }
-
-    // For customer messages, use the stripped main content (no quoted replies)
-    // For agent messages, show the full cleaned content
-    if (isAgent) {
-      const { cleaned } = cleanMarketingContent(normalizedDisplayContent);
-      return cleaned;
-    }
-
-    // Customer message - use parsedMain which has quoted content stripped
-    return parsedMain;
-  }, [showRawContent, message.raw_content, parsedMain, normalizedDisplayContent, isAgent]
-  );
+  // Simple: show raw_content when toggled, otherwise show content
+  const displayContent = showFullEmail && message.raw_content
+    ? message.raw_content
+    : (message.content || '');
 
   // Card styling based on sender type
   const cardStyles = cn(
@@ -357,18 +118,6 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
                 Merged
               </Badge>
             )}
-            {isMarketingEmail && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-700">
-                <Megaphone className="h-3 w-3 mr-1" />
-                Reply to marketing
-              </Badge>
-            )}
-            {hasQuotedContent && !isAgent && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-zinc-500 border-zinc-300 dark:text-zinc-400 dark:border-zinc-600">
-                <MessageSquareReply className="h-3 w-3 mr-1" />
-                Reply
-              </Badge>
-            )}
           </div>
           <span className="text-xs text-zinc-500 dark:text-zinc-400">
             {formatDate(message.created_at)}
@@ -388,7 +137,7 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
                   {children}
                 </a>
               ),
-              // Style inline images with click-to-view
+              // Style inline images
               img: ({ src, alt }) => {
                 const srcUrl = typeof src === 'string' ? src : undefined;
                 return (
@@ -412,20 +161,18 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
               },
             }}
           >
-            {mainContent}
+            {displayContent}
           </Markdown>
         </div>
 
-        {/* Quoted content is stripped from customer messages since agent replies exist as separate messages */}
-
-        {/* Show full email toggle for messages with raw_content */}
+        {/* Show full email toggle */}
         {hasRawContent && (
           <button
-            onClick={() => setShowRawContent(!showRawContent)}
+            onClick={() => setShowFullEmail(!showFullEmail)}
             className="mt-2 flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors"
           >
             <Mail className="h-3 w-3" />
-            {showRawContent ? (
+            {showFullEmail ? (
               <>
                 <span>Show cleaned version</span>
                 <ChevronUp className="h-3 w-3" />
