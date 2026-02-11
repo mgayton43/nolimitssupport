@@ -19,20 +19,72 @@ interface DisplayItem {
   isParsedFromThread?: boolean;
 }
 
+// Patterns that indicate quoted content start
+const QUOTED_START_PATTERNS = [
+  // "Previous conversation:" with separator
+  /\n---\s*\n+\*?\*?Previous conversation:\*?\*?\s*\n/i,
+  // iPhone/Apple Mail: "On Jan 29, 2026, at 9:08 AM, Name <email> wrote:"
+  /\n\s*On\s+\w{3}\s+\d{1,2},\s+\d{4},?\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<\n]*(?:<[^>]+>)?\s*wrote:/i,
+  // Gmail: "On Mon, Feb 9, 2026 at 11:19 PM, Name <email> wrote:"
+  /\n\s*On\s+\w{3},\s+\w{3}\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^<\n]*(?:<[^>]+>)?\s*wrote:/i,
+  // Outlook-style: "On 1/29/2026 9:08 AM, Name wrote:"
+  /\n\s*On\s+\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)?,?\s*[^:\n]{1,50}\s*wrote:/i,
+  // Generic: "On [date string], [name/email] wrote:"
+  /\n\s*On\s+[^\n]{10,80}\s+wrote:/i,
+  // "-------- Original Message --------"
+  /\n\s*-{3,}\s*Original Message\s*-{3,}/i,
+  // "---------- Forwarded message ----------"
+  /\n\s*-{3,}\s*Forwarded message\s*-{3,}/i,
+  // Lines starting with > (quoted content block)
+  /\n(?:>\s*[^\n]+\n){3,}/,
+];
+
+// Parse a single "On ... wrote:" header to extract sender info
+function parseWriteHeader(header: string): { senderType: 'customer' | 'agent'; senderHint?: string } {
+  const emailMatch = header.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+  const nameMatch = header.match(/,\s*([^<]+?)(?:\s*<|wrote)/i);
+
+  let senderType: 'customer' | 'agent' = 'customer';
+  let senderHint: string | undefined;
+
+  if (emailMatch) {
+    senderHint = emailMatch[1];
+    // Heuristic: if email contains support-related terms, it's likely an agent
+    if (/support|help|team|noreply|admin|service|care/i.test(emailMatch[1])) {
+      senderType = 'agent';
+    }
+  } else if (nameMatch) {
+    senderHint = nameMatch[1].trim();
+  }
+
+  return { senderType, senderHint };
+}
+
 // Parse embedded email thread content into separate turns
 function parseEmailThread(content: string): { newContent: string; threadTurns: Array<{ senderType: 'customer' | 'agent'; content: string; senderHint?: string }> } | null {
-  // Look for the "Previous conversation:" marker
-  const threadMarker = /\n---\s*\n+\*?\*?Previous conversation:\*?\*?\s*\n/i;
-  const match = content.match(threadMarker);
+  if (!content) return null;
 
-  if (!match || match.index === undefined) {
+  // Find where quoted content starts
+  let splitIndex = content.length;
+  let matchedPattern: RegExpMatchArray | null = null;
+
+  for (const pattern of QUOTED_START_PATTERNS) {
+    const match = content.match(pattern);
+    if (match && match.index !== undefined && match.index < splitIndex) {
+      splitIndex = match.index;
+      matchedPattern = match;
+    }
+  }
+
+  // No quoted content found
+  if (splitIndex === content.length) {
     return null;
   }
 
-  const newContent = content.slice(0, match.index).trim();
-  const threadContent = content.slice(match.index + match[0].length).trim();
+  const newContent = content.slice(0, splitIndex).trim();
+  const threadContent = content.slice(splitIndex).trim();
 
-  if (!threadContent) {
+  if (!threadContent || threadContent.length < 20) {
     return null;
   }
 
@@ -42,44 +94,40 @@ function parseEmailThread(content: string): { newContent: string; threadTurns: A
 
   // Split by the "On ... wrote:" pattern
   const parts = threadContent.split(turnPattern);
-  const matches = threadContent.match(turnPattern) || [];
+  const headerMatches = threadContent.match(turnPattern) || [];
 
-  // The first part (if any) is continuation of previous content
-  // Then alternate between headers and content
+  // Process each part
   for (let i = 0; i < parts.length; i++) {
-    const partContent = parts[i]
+    let partContent = parts[i]
       .replace(/^>+\s*/gm, '') // Remove quote markers
+      .replace(/^\*?\*?Previous conversation:\*?\*?\s*/i, '') // Remove "Previous conversation:" header
+      .replace(/^-{3,}\s*/gm, '') // Remove separator lines
       .trim();
 
-    if (!partContent) continue;
+    if (!partContent || partContent.length < 5) continue;
 
-    // Try to determine sender type from the header (if we have one)
-    let senderType: 'customer' | 'agent' = 'agent';
+    // Get sender info from the header that preceded this content
+    let senderType: 'customer' | 'agent' = 'customer';
     let senderHint: string | undefined;
 
-    if (i > 0 && matches[i - 1]) {
-      const header = matches[i - 1];
-      // Extract email/name from header
-      const emailMatch = header.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-      const nameMatch = header.match(/On\s+[\s\S]{0,150}?,\s*([^<]+?)(?:\s*<|wrote)/i);
-
-      if (emailMatch) {
-        senderHint = emailMatch[1];
-        // Simple heuristic: if email contains "support", "help", "team", "noreply" - it's likely an agent
-        if (/support|help|team|noreply|admin/i.test(emailMatch[1])) {
-          senderType = 'agent';
-        } else {
-          senderType = 'customer';
-        }
-      } else if (nameMatch) {
-        senderHint = nameMatch[1].trim();
-      }
+    if (i > 0 && headerMatches[i - 1]) {
+      const parsed = parseWriteHeader(headerMatches[i - 1]);
+      senderType = parsed.senderType;
+      senderHint = parsed.senderHint;
     }
 
     turns.push({
       senderType,
       content: partContent,
       senderHint,
+    });
+  }
+
+  // If we couldn't parse any turns, treat the whole thread as one block
+  if (turns.length === 0 && threadContent.length > 20) {
+    turns.push({
+      senderType: 'agent', // Assume quoted content is from agent
+      content: threadContent.replace(/^>+\s*/gm, '').trim(),
     });
   }
 
