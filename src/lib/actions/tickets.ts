@@ -1060,3 +1060,220 @@ export async function getTicketMergeInfo(
 
   return { mergedFrom, mergedInto };
 }
+
+// Get Ticket Detail for Split Pane Preview
+
+import type {
+  Message,
+  Tag,
+  TicketActivity,
+  CannedResponse,
+  Resource,
+  Team,
+  Brand,
+} from '@/lib/supabase/types';
+
+interface TicketDetailData {
+  ticket: {
+    id: string;
+    ticket_number: number;
+    subject: string;
+    status: TicketStatus;
+    priority: TicketPriority;
+    channel: TicketChannel | null;
+    brand_id: string | null;
+    customer: {
+      id: string;
+      email: string;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
+    assigned_agent: Pick<Profile, 'id' | 'full_name' | 'email' | 'avatar_url'> | null;
+    assigned_team: Team | null;
+    brand: Brand | null;
+    snoozed_until: string | null;
+    merged_into_ticket_id: string | null;
+    resolved_at: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  messages: Message[];
+  tags: Tag[];
+  activities: (TicketActivity & { actor: Pick<Profile, 'full_name' | 'avatar_url'> | null })[];
+  agents: Pick<Profile, 'id' | 'full_name' | 'email' | 'avatar_url'>[];
+  teams: Team[];
+  allTags: Tag[];
+  cannedResponses: CannedResponse[];
+  resources: Resource[];
+  customerTicketCount: number;
+  currentAgentName: string | null;
+  mergedIntoTicket: { id: string; ticket_number: number; subject: string } | null;
+}
+
+export async function getTicketDetail(
+  ticketId: string
+): Promise<{ data: TicketDetailData } | { error: string }> {
+  const supabase = await createClient();
+
+  // Fetch ticket with relations
+  const { data: ticketData, error: ticketError } = await supabase
+    .from('tickets')
+    .select(
+      `
+      *,
+      customer:customers(id, email, full_name, avatar_url),
+      assigned_agent:profiles!tickets_assigned_agent_id_fkey(id, full_name, email, avatar_url),
+      assigned_team:teams(*)
+    `
+    )
+    .eq('id', ticketId)
+    .single();
+
+  if (ticketError || !ticketData) {
+    return { error: 'Ticket not found' };
+  }
+
+  // Fetch merged into ticket info if this ticket was merged
+  let mergedIntoTicket: { id: string; ticket_number: number; subject: string } | null = null;
+  if (ticketData.merged_into_ticket_id) {
+    const { data: mergedData } = await supabase
+      .from('tickets')
+      .select('id, ticket_number, subject')
+      .eq('id', ticketData.merged_into_ticket_id)
+      .single();
+    mergedIntoTicket = mergedData;
+  }
+
+  // Fetch all data in parallel
+  const [
+    messagesResult,
+    ticketTagsResult,
+    agentsResult,
+    teamsResult,
+    allTagsResult,
+    activitiesResult,
+    cannedResponsesResult,
+    resourcesResult,
+    userResult,
+  ] = await Promise.all([
+    // Messages
+    supabase
+      .from('messages')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: true }),
+    // Ticket tags
+    supabase.from('ticket_tags').select('tag_id, tags(*)').eq('ticket_id', ticketId),
+    // Agents
+    supabase
+      .from('profiles')
+      .select('id, full_name, email, avatar_url')
+      .in('role', ['admin', 'agent'])
+      .eq('is_active', true),
+    // Teams
+    supabase.from('teams').select('*'),
+    // All tags
+    supabase.from('tags').select('*'),
+    // Activities
+    supabase
+      .from('ticket_activities')
+      .select('*, actor:profiles(full_name, avatar_url)')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    // Canned responses
+    supabase.from('canned_responses').select('*').order('title'),
+    // Resources
+    supabase
+      .from('resources')
+      .select('*')
+      .order('category', { ascending: true, nullsFirst: false })
+      .order('title'),
+    // Current user
+    supabase.auth.getUser(),
+  ]);
+
+  const messages = (messagesResult.data || []) as Message[];
+  const tags = (
+    ticketTagsResult.data?.map((tt: { tags: unknown }) => tt.tags).filter(Boolean) || []
+  ) as Tag[];
+  const agents = (agentsResult.data || []) as Pick<
+    Profile,
+    'id' | 'full_name' | 'email' | 'avatar_url'
+  >[];
+  const teams = (teamsResult.data || []) as Team[];
+  const allTags = (allTagsResult.data || []) as Tag[];
+  const activities = (activitiesResult.data || []) as (TicketActivity & {
+    actor: Pick<Profile, 'full_name' | 'avatar_url'> | null;
+  })[];
+  const cannedResponses = (cannedResponsesResult.data || []) as CannedResponse[];
+  const resources = (resourcesResult.data || []) as Resource[];
+  const user = userResult.data.user;
+
+  // Persist read state for the current user
+  if (user) {
+    await supabase.from('ticket_reads').upsert(
+      {
+        ticket_id: ticketId,
+        user_id: user.id,
+        last_read_at: new Date().toISOString(),
+      },
+      { onConflict: 'ticket_id,user_id' }
+    );
+  }
+
+  // Get current agent name
+  let currentAgentName: string | null = null;
+  if (user) {
+    const { data: currentProfile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single();
+    currentAgentName = (currentProfile as { full_name: string | null } | null)?.full_name || null;
+  }
+
+  // Fetch customer ticket count
+  let customerTicketCount = 0;
+  if (ticketData.customer_id) {
+    const { count } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .eq('customer_id', ticketData.customer_id);
+    customerTicketCount = count || 0;
+  }
+
+  return {
+    data: {
+      ticket: {
+        id: ticketData.id,
+        ticket_number: ticketData.ticket_number,
+        subject: ticketData.subject,
+        status: ticketData.status,
+        priority: ticketData.priority,
+        channel: ticketData.channel,
+        brand_id: ticketData.brand_id,
+        customer: ticketData.customer as TicketDetailData['ticket']['customer'],
+        assigned_agent: ticketData.assigned_agent as TicketDetailData['ticket']['assigned_agent'],
+        assigned_team: ticketData.assigned_team as Team | null,
+        brand: null, // Would need separate fetch
+        snoozed_until: ticketData.snoozed_until,
+        merged_into_ticket_id: ticketData.merged_into_ticket_id,
+        resolved_at: ticketData.resolved_at,
+        created_at: ticketData.created_at,
+        updated_at: ticketData.updated_at,
+      },
+      messages,
+      tags,
+      activities,
+      agents,
+      teams,
+      allTags,
+      cannedResponses,
+      resources,
+      customerTicketCount,
+      currentAgentName,
+      mergedIntoTicket,
+    },
+  };
+}

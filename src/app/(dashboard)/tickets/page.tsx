@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { Header } from '@/components/layout/header';
-import { TicketList } from '@/components/tickets/ticket-list';
+import { TicketSplitPane } from '@/components/tickets/ticket-split-pane';
 import { TicketFilters } from '@/components/tickets/ticket-filters';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,7 +9,7 @@ import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { searchTickets } from '@/lib/actions/tickets';
 import { getBrands } from '@/lib/actions/brands';
-import type { TicketSearchResult, Profile, Tag, Brand } from '@/lib/supabase/types';
+import type { TicketSearchResult, Profile, Tag } from '@/lib/supabase/types';
 
 interface PageProps {
   searchParams: Promise<{
@@ -73,6 +73,48 @@ function getViewTitle(view: string | undefined, agentName?: string): string {
     default:
       return 'All Tickets';
   }
+}
+
+type TicketReadRow = {
+  ticket_id: string;
+  last_read_at: string;
+};
+
+function getLatestTicketActivityAt(ticket: TicketSearchResult): string {
+  return ticket.last_message_at || ticket.updated_at || ticket.created_at;
+}
+
+async function addUnreadState(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tickets: TicketSearchResult[],
+  currentUserId: string
+): Promise<TicketSearchResult[]> {
+  if (!tickets.length || !currentUserId) {
+    return tickets.map((ticket) => ({ ...ticket, is_unread: false }));
+  }
+
+  const ticketIds = tickets.map((ticket) => ticket.id);
+
+  const { data: readRows } = await supabase
+    .from('ticket_reads')
+    .select('ticket_id, last_read_at')
+    .eq('user_id', currentUserId)
+    .in('ticket_id', ticketIds);
+
+  const readMap = new Map(
+    ((readRows || []) as TicketReadRow[]).map((row) => [row.ticket_id, row.last_read_at])
+  );
+
+  return tickets.map((ticket) => {
+    const activityAt = getLatestTicketActivityAt(ticket);
+    const lastReadAt = readMap.get(ticket.id);
+    const isUnread = !lastReadAt || new Date(activityAt).getTime() > new Date(lastReadAt).getTime();
+
+    return {
+      ...ticket,
+      is_unread: isUnread,
+    };
+  });
 }
 
 async function TicketListContent({
@@ -154,8 +196,9 @@ async function TicketListContent({
 
     // Apply sorting to search results
     filteredTickets = sortTickets(filteredTickets, sortBy);
+    filteredTickets = await addUnreadState(supabase, filteredTickets, currentUserId);
 
-    return <TicketList tickets={filteredTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
+    return <TicketSplitPane tickets={filteredTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
   }
 
   // Standard query without search
@@ -208,6 +251,8 @@ async function TicketListContent({
   } else if (searchParams.view === 'my-snoozed') {
     // Show snoozed tickets assigned to me
     // This view requires the snooze migration to be run
+    let snoozedTickets: TicketSearchResult[] = [];
+
     try {
       let snoozedQuery = supabase
         .from('tickets')
@@ -234,29 +279,32 @@ async function TicketListContent({
         snoozedQuery = snoozedQuery.order('created_at', { ascending: false });
       }
 
-      const { data: snoozedTickets, error: snoozedError } = await snoozedQuery;
+      const { data: snoozedData, error: snoozedError } = await snoozedQuery;
 
-      if (snoozedError) {
-        // Migration not run yet, return empty list
-        return <TicketList tickets={[]} agents={agents} tags={tags} isAdmin={isAdmin} />;
-      }
+      if (!snoozedError) {
+        // Apply priority sorting client-side if needed
+        let sortedSnoozed = snoozedData || [];
+        if (sortBy === 'priority_high') {
+          sortedSnoozed = [...sortedSnoozed].sort(
+            (a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3)
+          );
+        } else if (sortBy === 'priority_low') {
+          sortedSnoozed = [...sortedSnoozed].sort(
+            (a, b) => (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3)
+          );
+        }
 
-      // Apply priority sorting client-side if needed
-      let sortedSnoozed = snoozedTickets || [];
-      if (sortBy === 'priority_high') {
-        sortedSnoozed = [...sortedSnoozed].sort(
-          (a, b) => (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3)
+        snoozedTickets = await addUnreadState(
+          supabase,
+          sortedSnoozed as TicketSearchResult[],
+          currentUserId
         );
-      } else if (sortBy === 'priority_low') {
-        sortedSnoozed = [...sortedSnoozed].sort(
-          (a, b) => (priorityOrder[b.priority] ?? 3) - (priorityOrder[a.priority] ?? 3)
-        );
       }
-
-      return <TicketList tickets={sortedSnoozed} agents={agents} tags={tags} isAdmin={isAdmin} />;
     } catch {
-      return <TicketList tickets={[]} agents={agents} tags={tags} isAdmin={isAdmin} />;
+      // Return an empty snoozed list when the migration isn't available yet.
     }
+
+    return <TicketSplitPane tickets={snoozedTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
   } else if (searchParams.view === 'my-closed') {
     query = query.eq('assigned_agent_id', currentUserId).eq('status', 'closed');
   } else if (searchParams.view === 'agent' && searchParams.agent) {
@@ -316,22 +364,51 @@ async function TicketListContent({
     );
   }
 
-  return <TicketList tickets={sortedTickets} agents={agents} tags={tags} isAdmin={isAdmin} />;
+  const ticketsWithUnread = await addUnreadState(
+    supabase,
+    sortedTickets as TicketSearchResult[],
+    currentUserId
+  );
+
+  return <TicketSplitPane tickets={ticketsWithUnread} agents={agents} tags={tags} isAdmin={isAdmin} />;
 }
 
 function TicketListSkeleton() {
   return (
-    <div className="space-y-2 p-4">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 rounded-lg border p-4">
-          <Skeleton className="h-10 w-10 rounded-full" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-3 w-1/2" />
-          </div>
-          <Skeleton className="h-6 w-16" />
+    <div className="flex h-full">
+      {/* Left pane skeleton */}
+      <div className="w-[380px] shrink-0 border-r border-zinc-200 dark:border-zinc-800">
+        <div className="border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50">
+          <Skeleton className="h-4 w-24" />
         </div>
-      ))}
+        <div className="space-y-0">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-start gap-3 border-b border-zinc-200 p-3 dark:border-zinc-800">
+              <Skeleton className="h-4 w-4 shrink-0" />
+              <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <div className="flex justify-between">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-3 w-12" />
+                </div>
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-full" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-5 w-12" />
+                  <Skeleton className="h-5 w-14" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Right pane skeleton */}
+      <div className="hidden flex-1 items-center justify-center lg:flex">
+        <div className="text-center text-zinc-400 dark:text-zinc-500">
+          <p className="text-lg">Select a ticket to preview</p>
+          <p className="mt-1 text-sm">Click on a ticket from the list to view its details here</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -409,7 +486,7 @@ export default async function TicketsPage({ searchParams }: PageProps) {
         </Suspense>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden">
         <Suspense fallback={<TicketListSkeleton />}>
           <TicketListContent
             searchParams={resolvedSearchParams}
