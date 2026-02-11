@@ -79,11 +79,19 @@ export function TicketSidebar({
   customerTicketCount,
 }: TicketSidebarProps) {
   const [isPending, startTransition] = useTransition();
+  const [currentAgentId, setCurrentAgentId] = useState<string | null>(ticket.assigned_agent_id);
+  const [currentTeamId, setCurrentTeamId] = useState<string | null>(ticket.assigned_team_id);
   const [shopifyCustomer, setShopifyCustomer] = useState<{
     id: number;
     adminUrl: string;
     location: string | null;
   } | null>(null);
+
+  // Sync with ticket prop when it changes
+  useEffect(() => {
+    setCurrentAgentId(ticket.assigned_agent_id);
+    setCurrentTeamId(ticket.assigned_team_id);
+  }, [ticket.assigned_agent_id, ticket.assigned_team_id]);
 
   // Fetch Shopify customer info for location and admin link
   useEffect(() => {
@@ -119,14 +127,32 @@ export function TicketSidebar({
   };
 
   const handleAgentChange = (agentId: string) => {
+    const newAgentId = agentId === 'unassigned' ? null : agentId;
+    // Optimistic update
+    setCurrentAgentId(newAgentId);
+
     startTransition(async () => {
-      await assignTicket(ticket.id, agentId === 'unassigned' ? null : agentId);
+      const result = await assignTicket(ticket.id, newAgentId);
+      if (result.error) {
+        // Revert on error
+        setCurrentAgentId(ticket.assigned_agent_id);
+        console.error('Failed to assign ticket:', result.error);
+      }
     });
   };
 
   const handleTeamChange = (teamId: string) => {
+    const newTeamId = teamId === 'none' ? null : teamId;
+    // Optimistic update
+    setCurrentTeamId(newTeamId);
+
     startTransition(async () => {
-      await assignTicketToTeam(ticket.id, teamId === 'none' ? null : teamId);
+      const result = await assignTicketToTeam(ticket.id, newTeamId);
+      if (result.error) {
+        // Revert on error
+        setCurrentTeamId(ticket.assigned_team_id);
+        console.error('Failed to assign ticket to team:', result.error);
+      }
     });
   };
 
@@ -238,7 +264,7 @@ export function TicketSidebar({
           Assignee
         </label>
         <Select
-          value={ticket.assigned_agent_id || 'unassigned'}
+          value={currentAgentId || 'unassigned'}
           onValueChange={handleAgentChange}
           disabled={isPending}
         >
@@ -271,7 +297,7 @@ export function TicketSidebar({
           Team
         </label>
         <Select
-          value={ticket.assigned_team_id || 'none'}
+          value={currentTeamId || 'none'}
           onValueChange={handleTeamChange}
           disabled={isPending}
         >
