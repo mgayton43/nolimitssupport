@@ -11,11 +11,24 @@ interface TicketConversationProps {
 }
 
 export function TicketConversation({ messages, customer, agents }: TicketConversationProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(messages.length);
 
+  // Auto-scroll to bottom on initial load
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, []);
+
+  // Scroll to bottom when new messages are added
+  useEffect(() => {
+    if (messages.length > prevMessageCountRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages.length]);
 
   if (messages.length === 0) {
     return (
@@ -26,7 +39,7 @@ export function TicketConversation({ messages, customer, agents }: TicketConvers
   }
 
   return (
-    <div className="space-y-6 px-4 py-6">
+    <div ref={containerRef} className="space-y-4 px-4 py-6">
       {messages.map((message) => {
         let senderName: string | null = null;
         let senderAvatar: string | null = null;

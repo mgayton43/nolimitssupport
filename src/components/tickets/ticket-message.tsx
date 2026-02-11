@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   File,
   FileText,
@@ -10,6 +10,8 @@ import {
   ChevronDown,
   ChevronUp,
   Mail,
+  User,
+  Headphones,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -39,57 +41,123 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Split content into main message and quoted/previous content
+function splitQuotedContent(content: string): { main: string; quoted: string | null } {
+  // Common patterns for quoted content
+  const patterns = [
+    /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(Previous conversation:[\s\S]*)$/i,
+    /^([\s\S]*?)(?:\n---+\s*\n|\n_{3,}\s*\n)(On .+ wrote:[\s\S]*)$/i,
+    /^([\s\S]*?)((?:^>.*\n?)+)/m,
+    /^([\s\S]*?)(\n-{3,}\s*Original Message\s*-{3,}[\s\S]*)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = content.match(pattern);
+    if (match && match[1] && match[2]) {
+      const main = match[1].trim();
+      const quoted = match[2].trim();
+      // Only split if main content exists and quoted is substantial
+      if (main.length > 0 && quoted.length > 50) {
+        return { main, quoted };
+      }
+    }
+  }
+
+  return { main: content, quoted: null };
+}
+
 export function TicketMessage({ message, senderName, senderAvatar }: TicketMessageProps) {
   const isAgent = message.sender_type === 'agent';
+  const isInternal = message.is_internal;
   const attachments = (message.attachments || []) as Attachment[];
   const [showRawContent, setShowRawContent] = useState(false);
+  const [showQuoted, setShowQuoted] = useState(false);
 
   // Check if there's raw content that differs from the displayed content
   const hasRawContent = message.raw_content && message.raw_content !== message.content;
 
   // Determine which content to display
-  const displayContent = showRawContent ? message.raw_content! : message.content;
+  const baseContent = showRawContent ? message.raw_content! : message.content;
+
+  // Split into main and quoted content
+  const { main: mainContent, quoted: quotedContent } = useMemo(
+    () => splitQuotedContent(baseContent),
+    [baseContent]
+  );
+
+  // Card styling based on sender type
+  const cardStyles = cn(
+    'rounded-lg border p-4',
+    isInternal
+      ? 'border-dashed border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-900/20'
+      : isAgent
+        ? 'border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-900/20'
+        : 'border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'
+  );
+
+  // Left border accent
+  const accentStyles = cn(
+    'absolute left-0 top-0 bottom-0 w-1 rounded-l-lg',
+    isInternal
+      ? 'bg-yellow-400 dark:bg-yellow-600'
+      : isAgent
+        ? 'bg-blue-500 dark:bg-blue-600'
+        : 'bg-zinc-300 dark:bg-zinc-600'
+  );
 
   return (
-    <div
-      className={cn(
-        'flex gap-3',
-        message.is_internal && 'bg-yellow-50 dark:bg-yellow-900/10 -mx-4 px-4 py-3'
-      )}
-    >
-      <Avatar
-        src={senderAvatar}
-        fallback={getInitials(senderName)}
-        size="default"
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{senderName || 'Unknown'}</span>
-          {isAgent && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-              Agent
-            </Badge>
-          )}
-          {message.is_internal && (
-            <Badge variant="warning" className="text-[10px] px-1.5 py-0">
-              Internal Note
-            </Badge>
-          )}
-          {message.source === 'new_email' && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-600 border-blue-300 dark:text-blue-400 dark:border-blue-700">
-              New Email
-            </Badge>
-          )}
-          {message.source === 'merge' && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-purple-600 border-purple-300 dark:text-purple-400 dark:border-purple-700">
-              Merged
-            </Badge>
-          )}
+    <div className={cn('relative', cardStyles)}>
+      {/* Left accent border */}
+      <div className={accentStyles} />
+
+      {/* Header row */}
+      <div className="flex items-center gap-3 mb-3">
+        <Avatar
+          src={senderAvatar}
+          fallback={getInitials(senderName)}
+          size="default"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Sender type indicator */}
+            {isAgent ? (
+              <span className="flex items-center gap-1 font-semibold text-blue-700 dark:text-blue-400">
+                <Headphones className="h-4 w-4" />
+                {senderName || 'Agent'}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 font-semibold text-zinc-700 dark:text-zinc-300">
+                <User className="h-4 w-4" />
+                {senderName || 'Customer'}
+              </span>
+            )}
+
+            {isInternal && (
+              <Badge variant="warning" className="text-[10px] px-1.5 py-0">
+                Internal Note
+              </Badge>
+            )}
+            {message.source === 'new_email' && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-600 border-blue-300 dark:text-blue-400 dark:border-blue-700">
+                <Mail className="h-3 w-3 mr-1" />
+                Email
+              </Badge>
+            )}
+            {message.source === 'merge' && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-purple-600 border-purple-300 dark:text-purple-400 dark:border-purple-700">
+                Merged
+              </Badge>
+            )}
+          </div>
           <span className="text-xs text-zinc-500 dark:text-zinc-400">
             {formatDate(message.created_at)}
           </span>
         </div>
-        <div className="mt-1 text-sm text-zinc-700 dark:text-zinc-300 prose prose-sm prose-zinc dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-a:text-blue-600 dark:prose-a:text-blue-400">
+      </div>
+
+      {/* Message content */}
+      <div className="pl-13 ml-10">
+        <div className="text-sm text-zinc-700 dark:text-zinc-300 prose prose-sm prose-zinc dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-a:text-blue-600 dark:prose-a:text-blue-400">
           <Markdown
             rehypePlugins={[rehypeRaw]}
             components={{
@@ -123,9 +191,41 @@ export function TicketMessage({ message, senderName, senderAvatar }: TicketMessa
               },
             }}
           >
-            {displayContent}
+            {mainContent}
           </Markdown>
         </div>
+
+        {/* Quoted/Previous content (collapsed by default) */}
+        {quotedContent && (
+          <div className="mt-3">
+            <button
+              onClick={() => setShowQuoted(!showQuoted)}
+              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 transition-colors"
+            >
+              {showQuoted ? (
+                <>
+                  <ChevronUp className="h-3 w-3" />
+                  <span>Hide previous conversation</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3" />
+                  <span>Show previous conversation</span>
+                </>
+              )}
+            </button>
+
+            {showQuoted && (
+              <div className="mt-2 rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400 prose prose-xs prose-zinc dark:prose-invert max-w-none">
+                  <Markdown rehypePlugins={[rehypeRaw]}>
+                    {quotedContent}
+                  </Markdown>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Show full email toggle for messages with raw_content */}
         {hasRawContent && (
