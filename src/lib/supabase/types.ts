@@ -69,8 +69,24 @@ export interface Customer {
   phone: string | null;
   avatar_url: string | null;
   metadata: Record<string, unknown>;
+  shopify_customer_id: string | null;
+  order_count: number;
+  lifetime_value: number;
+  city: string | null;
+  state: string | null;
+  country: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CustomerNote {
+  id: string;
+  customer_id: string;
+  content: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  author?: Pick<Profile, 'id' | 'full_name' | 'email' | 'avatar_url'> | null;
 }
 
 export interface Tag {

@@ -524,6 +524,12 @@ export async function searchTickets(
           phone: row.customer_phone,
           avatar_url: row.customer_avatar_url,
           metadata: row.customer_metadata || {},
+          shopify_customer_id: null,
+          order_count: 0,
+          lifetime_value: 0,
+          city: null,
+          state: null,
+          country: null,
           created_at: row.customer_created_at || row.created_at,
           updated_at: row.customer_updated_at || row.updated_at,
         }

@@ -3,12 +3,15 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { Header } from '@/components/layout/header';
 import { Avatar } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatusBadge } from '@/components/tickets/status-badge';
 import { PriorityBadge } from '@/components/tickets/priority-badge';
+import { CustomerNotesSection } from '@/components/customers/customer-notes-section';
 import { getInitials, formatDate, formatRelativeTime } from '@/lib/utils';
-import { Mail, Phone, Calendar, Package } from 'lucide-react';
-import type { Customer, TicketStatus, TicketPriority } from '@/lib/supabase/types';
+import { getCustomerNotes } from '@/lib/actions/customer-notes';
+import { Mail, Phone, Calendar, Package, ExternalLink, MapPin, ShoppingBag, DollarSign } from 'lucide-react';
+import type { Customer, TicketStatus, TicketPriority, CustomerNote } from '@/lib/supabase/types';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -23,6 +26,9 @@ interface TicketWithAgent {
   created_at: string;
   assigned_agent: { full_name: string | null; email: string } | null;
 }
+
+// Shopify store URL
+const SHOPIFY_ADMIN_URL = 'https://drifiresystem.myshopify.com/admin/customers';
 
 export default async function CustomerDetailPage({ params }: PageProps) {
   const { id } = await params;
@@ -49,7 +55,13 @@ export default async function CustomerDetailPage({ params }: PageProps) {
     .limit(20);
 
   const tickets = ticketsData as TicketWithAgent[] | null;
+
+  // Fetch customer notes
+  const notesResult = await getCustomerNotes(id);
+  const notes = 'notes' in notesResult ? notesResult.notes : [];
+
   const metadata = customer.metadata as Record<string, unknown> | null;
+  const location = [customer.city, customer.state, customer.country].filter(Boolean).join(', ');
 
   return (
     <div className="flex h-full flex-col">
@@ -68,29 +80,78 @@ export default async function CustomerDetailPage({ params }: PageProps) {
                   className="h-20 w-20 text-xl"
                 />
                 <div className="flex-1">
-                  <h2 className="text-2xl font-semibold">
-                    {customer.full_name || 'Unknown Customer'}
-                  </h2>
-                  <div className="mt-2 space-y-1 text-zinc-600 dark:text-zinc-400">
-                    <p className="flex items-center gap-2">
-                      <Mail className="h-4 w-4" />
-                      {customer.email}
-                    </p>
-                    {customer.phone && (
-                      <p className="flex items-center gap-2">
-                        <Phone className="h-4 w-4" />
-                        {customer.phone}
-                      </p>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h2 className="text-2xl font-semibold">
+                        {customer.full_name || 'Unknown Customer'}
+                      </h2>
+                      <div className="mt-2 space-y-1 text-zinc-600 dark:text-zinc-400">
+                        <p className="flex items-center gap-2">
+                          <Mail className="h-4 w-4" />
+                          {customer.email}
+                        </p>
+                        {customer.phone && (
+                          <p className="flex items-center gap-2">
+                            <Phone className="h-4 w-4" />
+                            {customer.phone}
+                          </p>
+                        )}
+                        {location && (
+                          <p className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4" />
+                            {location}
+                          </p>
+                        )}
+                        <p className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4" />
+                          Customer since {formatDate(customer.created_at)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Shopify Button */}
+                    {customer.shopify_customer_id && (
+                      <a
+                        href={`${SHOPIFY_ADMIN_URL}/${customer.shopify_customer_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button variant="outline" className="gap-2">
+                          <ExternalLink className="h-4 w-4" />
+                          View in Shopify
+                        </Button>
+                      </a>
                     )}
-                    <p className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Customer since {formatDate(customer.created_at)}
-                    </p>
                   </div>
+
+                  {/* Order Stats */}
+                  {(customer.order_count > 0 || customer.lifetime_value > 0) && (
+                    <div className="mt-4 flex gap-4">
+                      {customer.order_count > 0 && (
+                        <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 dark:bg-blue-900/20">
+                          <ShoppingBag className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                            {customer.order_count} orders
+                          </span>
+                        </div>
+                      )}
+                      {customer.lifetime_value > 0 && (
+                        <div className="flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 dark:bg-green-900/20">
+                          <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+                          <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                            ${customer.lifetime_value.toFixed(2)} lifetime
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Internal Notes */}
+          <CustomerNotesSection customerId={id} initialNotes={notes} />
 
           {/* Metadata / Order History */}
           {metadata && Object.keys(metadata).length > 0 && (
