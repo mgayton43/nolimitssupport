@@ -110,7 +110,16 @@ export interface TagTicket {
   } | null;
 }
 
-export async function getTicketsByTag(tagId: string, limit = 25): Promise<{ tickets: TagTicket[]; total: number } | { error: string }> {
+export interface DateRange {
+  from: string | null;
+  to: string | null;
+}
+
+export async function getTicketsByTag(
+  tagId: string,
+  limit = 25,
+  dateRange?: DateRange
+): Promise<{ tickets: TagTicket[]; total: number } | { error: string }> {
   const parsed = uuidSchema.safeParse(tagId);
   if (!parsed.success) {
     return { error: 'Invalid tag ID' };
@@ -118,17 +127,17 @@ export async function getTicketsByTag(tagId: string, limit = 25): Promise<{ tick
 
   const supabase = await createClient();
 
-  // Get total count
-  const { count } = await supabase
+  // Build the query with date filtering
+  // We need to join through tickets to filter by created_at
+  let countQuery = supabase
     .from('ticket_tags')
-    .select('*', { count: 'exact', head: true })
+    .select('ticket_id, tickets!inner(created_at)', { count: 'exact', head: true })
     .eq('tag_id', parsed.data);
 
-  // Get tickets with this tag
-  const { data: ticketTags, error } = await supabase
+  let dataQuery = supabase
     .from('ticket_tags')
     .select(`
-      ticket:tickets(
+      ticket:tickets!inner(
         id,
         ticket_number,
         subject,
@@ -140,6 +149,25 @@ export async function getTicketsByTag(tagId: string, limit = 25): Promise<{ tick
     .eq('tag_id', parsed.data)
     .order('ticket_id', { ascending: false })
     .limit(limit);
+
+  // Apply date range filters
+  if (dateRange?.from) {
+    countQuery = countQuery.gte('tickets.created_at', dateRange.from);
+    dataQuery = dataQuery.gte('ticket.created_at', dateRange.from);
+  }
+  if (dateRange?.to) {
+    // Add 1 day to include the end date fully
+    const toDate = new Date(dateRange.to);
+    toDate.setDate(toDate.getDate() + 1);
+    const toDateStr = toDate.toISOString().split('T')[0];
+    countQuery = countQuery.lt('tickets.created_at', toDateStr);
+    dataQuery = dataQuery.lt('ticket.created_at', toDateStr);
+  }
+
+  const [{ count }, { data: ticketTags, error }] = await Promise.all([
+    countQuery,
+    dataQuery,
+  ]);
 
   if (error) {
     console.error('Get tickets by tag error:', error);
@@ -154,12 +182,28 @@ export async function getTicketsByTag(tagId: string, limit = 25): Promise<{ tick
   return { tickets, total: count || 0 };
 }
 
-export async function getTagTicketCounts(): Promise<{ counts: Record<string, number> } | { error: string }> {
+export async function getTagTicketCounts(
+  dateRange?: DateRange
+): Promise<{ counts: Record<string, number> } | { error: string }> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('ticket_tags')
-    .select('tag_id');
+    .select('tag_id, tickets!inner(created_at)');
+
+  // Apply date range filters
+  if (dateRange?.from) {
+    query = query.gte('tickets.created_at', dateRange.from);
+  }
+  if (dateRange?.to) {
+    // Add 1 day to include the end date fully
+    const toDate = new Date(dateRange.to);
+    toDate.setDate(toDate.getDate() + 1);
+    const toDateStr = toDate.toISOString().split('T')[0];
+    query = query.lt('tickets.created_at', toDateStr);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error('Get tag ticket counts error:', error);

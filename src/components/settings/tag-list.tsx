@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink, Loader2, Calendar, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { createTag, updateTag, deleteTag, getTicketsByTag, type TagTicket } from '@/lib/actions/tags';
+import { createTag, updateTag, deleteTag, getTicketsByTag, getTagTicketCounts, type TagTicket, type DateRange } from '@/lib/actions/tags';
 import { cn } from '@/lib/utils';
 import type { Tag } from '@/lib/supabase/types';
 
@@ -39,21 +39,118 @@ const statusColors: Record<string, string> = {
   snoozed: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
 };
 
+// Preset date ranges
+const presets = [
+  { label: 'All Time', value: 'all' },
+  { label: 'Today', value: 'today' },
+  { label: 'Last 7 Days', value: '7d' },
+  { label: 'Last 30 Days', value: '30d' },
+  { label: 'Last 90 Days', value: '90d' },
+  { label: 'This Month', value: 'month' },
+  { label: 'This Year', value: 'year' },
+];
+
+function getPresetDateRange(preset: string): DateRange {
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+
+  switch (preset) {
+    case 'today':
+      return { from: today, to: today };
+    case '7d': {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 7);
+      return { from: from.toISOString().split('T')[0], to: today };
+    }
+    case '30d': {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 30);
+      return { from: from.toISOString().split('T')[0], to: today };
+    }
+    case '90d': {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 90);
+      return { from: from.toISOString().split('T')[0], to: today };
+    }
+    case 'month': {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: from.toISOString().split('T')[0], to: today };
+    }
+    case 'year': {
+      const from = new Date(now.getFullYear(), 0, 1);
+      return { from: from.toISOString().split('T')[0], to: today };
+    }
+    default:
+      return { from: null, to: null };
+  }
+}
+
 interface TagListProps {
   tags: Tag[];
   ticketCounts: Record<string, number>;
 }
 
-export function TagList({ tags, ticketCounts }: TagListProps) {
+export function TagList({ tags, ticketCounts: initialTicketCounts }: TagListProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [selectedColor, setSelectedColor] = useState('#6B7280');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // Date range state
+  const [selectedPreset, setSelectedPreset] = useState('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>({ from: null, to: null });
+  const [ticketCounts, setTicketCounts] = useState<Record<string, number>>(initialTicketCounts);
+  const [isLoadingCounts, setIsLoadingCounts] = useState(false);
+
   // Expandable state
   const [expandedTagId, setExpandedTagId] = useState<string | null>(null);
   const [tagTickets, setTagTickets] = useState<Record<string, { tickets: TagTicket[]; total: number; loading: boolean }>>({});
+
+  // Refetch counts when date range changes
+  useEffect(() => {
+    // Skip initial render (all time)
+    if (dateRange.from === null && dateRange.to === null && selectedPreset === 'all') {
+      return;
+    }
+
+    const fetchCounts = async () => {
+      setIsLoadingCounts(true);
+      setTagTickets({}); // Clear cached tickets
+      setExpandedTagId(null);
+
+      const result = await getTagTicketCounts(dateRange);
+      if ('counts' in result) {
+        setTicketCounts(result.counts);
+      }
+      setIsLoadingCounts(false);
+    };
+
+    fetchCounts();
+  }, [dateRange, selectedPreset]);
+
+  const handlePresetChange = (preset: string) => {
+    setSelectedPreset(preset);
+    setCustomFrom('');
+    setCustomTo('');
+    if (preset === 'all') {
+      setTicketCounts(initialTicketCounts);
+      setTagTickets({});
+      setExpandedTagId(null);
+      setDateRange({ from: null, to: null });
+    } else {
+      setDateRange(getPresetDateRange(preset));
+    }
+  };
+
+  const handleCustomDateApply = () => {
+    if (customFrom || customTo) {
+      setSelectedPreset('custom');
+      setDateRange({ from: customFrom || null, to: customTo || null });
+    }
+  };
 
   const handleToggleExpand = async (tagId: string) => {
     if (expandedTagId === tagId) {
@@ -63,14 +160,14 @@ export function TagList({ tags, ticketCounts }: TagListProps) {
 
     setExpandedTagId(tagId);
 
-    // Fetch tickets if not already loaded
+    // Fetch tickets if not already loaded for current date range
     if (!tagTickets[tagId]) {
       setTagTickets((prev) => ({
         ...prev,
         [tagId]: { tickets: [], total: 0, loading: true },
       }));
 
-      const result = await getTicketsByTag(tagId);
+      const result = await getTicketsByTag(tagId, 25, dateRange);
 
       if ('tickets' in result) {
         setTagTickets((prev) => ({
@@ -163,8 +260,96 @@ export function TagList({ tags, ticketCounts }: TagListProps) {
     });
   };
 
+  const formatDateRangeLabel = () => {
+    if (selectedPreset === 'all') return 'All Time';
+    if (selectedPreset === 'custom') {
+      const parts = [];
+      if (dateRange.from) parts.push(new Date(dateRange.from).toLocaleDateString());
+      if (dateRange.to) parts.push(new Date(dateRange.to).toLocaleDateString());
+      return parts.join(' - ') || 'Custom';
+    }
+    return presets.find((p) => p.value === selectedPreset)?.label || 'All Time';
+  };
+
   return (
     <div className="p-6 space-y-4">
+      {/* Date Range Filter */}
+      <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-zinc-500" />
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Date Range:</span>
+        </div>
+
+        {/* Preset buttons */}
+        <div className="flex flex-wrap gap-1">
+          {presets.map((preset) => (
+            <button
+              key={preset.value}
+              type="button"
+              onClick={() => handlePresetChange(preset.value)}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-full transition-colors',
+                selectedPreset === preset.value
+                  ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom date inputs */}
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={customFrom}
+            onChange={(e) => setCustomFrom(e.target.value)}
+            className="px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800"
+            placeholder="From"
+          />
+          <span className="text-zinc-400">to</span>
+          <input
+            type="date"
+            value={customTo}
+            onChange={(e) => setCustomTo(e.target.value)}
+            className="px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800"
+            placeholder="To"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCustomDateApply}
+            disabled={!customFrom && !customTo}
+            className="h-7 text-xs"
+          >
+            Apply
+          </Button>
+        </div>
+
+        {/* Loading indicator */}
+        {isLoadingCounts && (
+          <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+        )}
+
+        {/* Current filter indicator */}
+        {selectedPreset !== 'all' && (
+          <div className="flex items-center gap-1 ml-auto">
+            <span className="text-xs text-zinc-500">
+              Showing: <span className="font-medium text-zinc-700 dark:text-zinc-300">{formatDateRangeLabel()}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => handlePresetChange('all')}
+              className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded"
+              title="Clear filter"
+            >
+              <X className="h-3 w-3 text-zinc-400" />
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="flex justify-end">
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
