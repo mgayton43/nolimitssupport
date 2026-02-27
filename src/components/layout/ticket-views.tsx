@@ -43,10 +43,10 @@ function CountBadge({
   if (count === 0) return null;
 
   const variantStyles = {
-    default: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    muted: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400',
-    orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    default: 'bg-blue-500/20 text-blue-400',
+    muted: 'bg-zinc-700 text-zinc-400',
+    orange: 'bg-orange-500/20 text-orange-400',
+    green: 'bg-green-500/20 text-green-400',
   };
 
   return (
@@ -236,7 +236,7 @@ export function TicketViews() {
 
   return (
     <div className="space-y-1">
-      <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+      <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
         Tickets
       </div>
 
@@ -249,8 +249,8 @@ export function TicketViews() {
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               isActive
-                ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
-                : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'
             )}
           >
             <item.icon className="h-5 w-5" />
@@ -265,7 +265,7 @@ export function TicketViews() {
         <div className="mt-4">
           <button
             onClick={() => setIsAgentInboxesOpen(!isAgentInboxesOpen)}
-            className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+            className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
           >
             {isAgentInboxesOpen ? (
               <ChevronDown className="h-4 w-4" />
@@ -286,8 +286,8 @@ export function TicketViews() {
                     className={cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 pl-8 text-sm font-medium transition-colors',
                       isActive
-                        ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
-                        : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                        ? 'bg-zinc-800 text-white'
+                        : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'
                     )}
                   >
                     <span className="truncate">{agent.full_name || agent.email}</span>
