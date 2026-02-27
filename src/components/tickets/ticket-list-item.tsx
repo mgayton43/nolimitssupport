@@ -33,6 +33,7 @@ interface TicketListItemProps {
   matchField?: MatchField;
   selected?: boolean;
   onSelect?: (ticketId: string, selected: boolean) => void;
+  onOpen?: (ticketId: string) => void;
   viewers?: PresenceUser[];
 }
 
@@ -49,8 +50,11 @@ export function TicketListItem({
   matchField,
   selected = false,
   onSelect,
+  onOpen,
   viewers = [],
 }: TicketListItemProps) {
+  const isUnread = ticket.is_unread ?? false;
+
   const handleCheckboxClick = (e: React.MouseEvent<HTMLInputElement>) => {
     e.stopPropagation();
     // Toggle the current selection state
@@ -60,7 +64,11 @@ export function TicketListItem({
   return (
     <div
       className={`flex items-center gap-4 border-b border-zinc-200 p-4 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900 ${
-        selected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+        selected
+          ? 'bg-blue-50 dark:bg-blue-900/20'
+          : isUnread
+            ? 'border-l-4 border-l-blue-500 bg-white pl-3 dark:bg-zinc-950'
+            : 'bg-zinc-200/65 dark:bg-zinc-900/70'
       }`}
     >
       {/* Checkbox */}
@@ -75,6 +83,7 @@ export function TicketListItem({
       {/* Ticket content - clickable link */}
       <Link
         href={`/tickets/${ticket.id}`}
+        onClick={() => onOpen?.(ticket.id)}
         className="flex min-w-0 flex-1 items-center gap-4"
       >
         <Avatar
@@ -89,8 +98,22 @@ export function TicketListItem({
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
               #{ticket.ticket_number}
             </span>
+            {!selected && isUnread && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                title="Unread"
+              />
+            )}
             <BrandBadge brand={ticket.brand} />
-            <h3 className="truncate font-medium">{ticket.subject}</h3>
+            <h3
+              className={`truncate ${
+                isUnread
+                  ? 'font-semibold text-zinc-900 dark:text-zinc-50'
+                  : 'font-medium text-zinc-600 dark:text-zinc-300'
+              }`}
+            >
+              {ticket.subject}
+            </h3>
             {matchField && (
               <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                 {matchFieldLabels[matchField]}

@@ -6,16 +6,18 @@ import { TicketComposer } from './ticket-composer';
 import { TicketPresenceBanner } from './ticket-presence-banner';
 import { useTicketPresence } from '@/lib/hooks/use-ticket-presence';
 import { createClient } from '@/lib/supabase/client';
-import type { TicketWithRelations, Message, Profile, CannedResponse, Resource } from '@/lib/supabase/types';
+import type { TicketWithRelations, Message, Profile, CannedResponse, Resource, PromoCode, Product } from '@/lib/supabase/types';
 
 interface TicketDetailProps {
   ticket: TicketWithRelations;
   cannedResponses: CannedResponse[];
   resources: Resource[];
+  promoCodes?: PromoCode[];
+  products?: Product[];
   agentName?: string | null;
 }
 
-export function TicketDetail({ ticket, cannedResponses, resources, agentName }: TicketDetailProps) {
+export function TicketDetail({ ticket, cannedResponses, resources, promoCodes = [], products = [], agentName }: TicketDetailProps) {
   const [messages, setMessages] = useState<Message[]>(ticket.messages || []);
   const [agents, setAgents] = useState<Map<string, Profile>>(new Map());
   const supabase = createClient();
@@ -92,6 +94,8 @@ export function TicketDetail({ ticket, cannedResponses, resources, agentName }: 
         ticketBrandId={ticket.brand_id}
         cannedResponses={cannedResponses}
         resources={resources}
+        promoCodes={promoCodes}
+        products={products}
         templateContext={{
           customerName: ticket.customer?.full_name,
           customerEmail: ticket.customer?.email,

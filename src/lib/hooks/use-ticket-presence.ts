@@ -57,6 +57,21 @@ export function useTicketPresence({ ticketId, enabled = true }: UseTicketPresenc
         }, {
           onConflict: 'ticket_id,user_id',
         });
+
+      // Keep persistent read state in sync while the ticket is open.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any)
+        .from('ticket_reads')
+        .upsert(
+          {
+            ticket_id: ticketId,
+            user_id: profile.id,
+            last_read_at: new Date().toISOString(),
+          },
+          {
+            onConflict: 'ticket_id,user_id',
+          }
+        );
     } catch (error) {
       console.error('Failed to update presence:', error);
     }

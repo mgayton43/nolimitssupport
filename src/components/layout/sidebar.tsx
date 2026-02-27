@@ -15,6 +15,8 @@ import {
   Gauge,
   Library,
   Upload,
+  Percent,
+  Package,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
@@ -46,6 +48,8 @@ const settingsNavigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Canned Responses', href: '/settings/canned-responses', icon: MessageSquare },
   { name: 'Resources', href: '/settings/resources', icon: Library },
+  { name: 'Promo Codes', href: '/settings/promo-codes', icon: Percent, adminOnly: true },
+  { name: 'Products', href: '/settings/products', icon: Package, adminOnly: true },
   { name: 'Tags', href: '/settings/tags', icon: Tag, adminOnly: true },
   { name: 'Tag Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
   { name: 'Priority Rules', href: '/settings/priority-rules', icon: Gauge, adminOnly: true },

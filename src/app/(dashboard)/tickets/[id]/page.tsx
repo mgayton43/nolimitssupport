@@ -19,6 +19,8 @@ import type {
   TicketActivity,
   CannedResponse,
   Resource,
+  PromoCode,
+  Product,
   Brand,
 } from '@/lib/supabase/types';
 
@@ -136,6 +138,32 @@ export default async function TicketDetailPage({ params }: PageProps) {
 
   const resources = (resourcesData || []) as Resource[];
 
+  // Fetch active promo codes (gracefully handle if table doesn't exist yet)
+  let promoCodes: PromoCode[] = [];
+  try {
+    const { data: promoCodesData } = await supabase
+      .from('promo_codes')
+      .select('*')
+      .eq('is_active', true)
+      .order('code');
+    promoCodes = (promoCodesData || []) as PromoCode[];
+  } catch {
+    // Table may not exist yet
+  }
+
+  // Fetch products (gracefully handle if table doesn't exist yet)
+  let products: Product[] = [];
+  try {
+    const { data: productsData } = await supabase
+      .from('products')
+      .select('*')
+      .in('stock_status', ['in_stock', 'pre_order'])
+      .order('name');
+    products = (productsData || []) as Product[];
+  } catch {
+    // Table may not exist yet
+  }
+
   // Fetch customer ticket count
   let customerTicketCount = 0;
   if (ticket.customer_id) {
@@ -150,6 +178,24 @@ export default async function TicketDetailPage({ params }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Persist read state for the current user when they open the ticket.
+  if (user) {
+    try {
+      await supabase
+        .from('ticket_reads')
+        .upsert(
+          {
+            ticket_id: id,
+            user_id: user.id,
+            last_read_at: new Date().toISOString(),
+          },
+          { onConflict: 'ticket_id,user_id' }
+        );
+    } catch {
+      // Table may not exist yet
+    }
+  }
 
   let currentAgentName: string | null = null;
   if (user) {
@@ -202,6 +248,8 @@ export default async function TicketDetailPage({ params }: PageProps) {
             ticket={{ ...ticket, tags, messages }}
             cannedResponses={cannedResponses}
             resources={resources}
+            promoCodes={promoCodes}
+            products={products}
             agentName={currentAgentName}
           />
         </div>

@@ -38,13 +38,15 @@ import {
 } from '@/lib/utils/template-variables';
 import { ResourcePicker, formatResourceLink } from './resource-picker';
 import { createClient } from '@/lib/supabase/client';
-import type { CannedResponse, Resource, Attachment } from '@/lib/supabase/types';
+import type { CannedResponse, Resource, PromoCode, Product, Attachment } from '@/lib/supabase/types';
 
 interface TicketComposerProps {
   ticketId: string;
   ticketBrandId?: string | null;
   cannedResponses?: CannedResponse[];
   resources?: Resource[];
+  promoCodes?: PromoCode[];
+  products?: Product[];
   templateContext?: TemplateContext;
   onTypingChange?: (isTyping: boolean) => void;
 }
@@ -60,6 +62,8 @@ export function TicketComposer({
   ticketBrandId,
   cannedResponses = [],
   resources = [],
+  promoCodes = [],
+  products = [],
   templateContext = {},
   onTypingChange,
 }: TicketComposerProps) {
@@ -71,6 +75,16 @@ export function TicketComposer({
   // Filter resources by ticket brand (show brand-specific OR "All Brands" resources)
   const filteredResources = resources.filter(
     (r) => !r.brand_id || r.brand_id === ticketBrandId
+  );
+
+  // Filter promo codes by ticket brand (show brand-specific OR "All Brands" codes)
+  const filteredPromoCodes = promoCodes.filter(
+    (p) => p.is_active && (!p.brand_id || p.brand_id === ticketBrandId)
+  );
+
+  // Filter products by ticket brand (show brand-specific OR "All Brands" products)
+  const filteredProducts = products.filter(
+    (p) => !p.brand_id || p.brand_id === ticketBrandId
   );
   const [content, setContent] = useState('');
   const [isInternal, setIsInternal] = useState(false);
@@ -818,7 +832,7 @@ export function TicketComposer({
             </div>
           )}
 
-          {filteredResources.length > 0 && (
+          {(filteredResources.length > 0 || filteredPromoCodes.length > 0 || filteredProducts.length > 0) && (
             <div className="relative" ref={resourcePickerRef}>
               <Button
                 type="button"
@@ -832,6 +846,8 @@ export function TicketComposer({
 
               <ResourcePicker
                 resources={filteredResources}
+                promoCodes={filteredPromoCodes}
+                products={filteredProducts}
                 isOpen={isResourcePickerOpen}
                 onClose={() => setIsResourcePickerOpen(false)}
                 onSelect={handleResourceSelect}

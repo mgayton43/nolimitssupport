@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { TicketListItem } from './ticket-list-item';
 import { BulkActionBar } from './bulk-action-bar';
 import { useTicketListPresence } from '@/lib/hooks/use-ticket-presence';
@@ -14,23 +14,28 @@ interface TicketListProps {
 }
 
 export function TicketList({ tickets, agents, tags, isAdmin = false }: TicketListProps) {
+  const [ticketItems, setTicketItems] = useState<TicketSearchResult[]>(tickets);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    setTicketItems(tickets);
+  }, [tickets]);
+
   // Get ticket IDs for presence tracking
-  const ticketIds = useMemo(() => tickets.map((t) => t.id), [tickets]);
+  const ticketIds = useMemo(() => ticketItems.map((t) => t.id), [ticketItems]);
   const presenceMap = useTicketListPresence(ticketIds);
 
-  const allSelected = tickets.length > 0 && selectedIds.size === tickets.length;
-  const someSelected = selectedIds.size > 0 && selectedIds.size < tickets.length;
+  const allSelected = ticketItems.length > 0 && selectedIds.size === ticketItems.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < ticketItems.length;
 
   const handleSelectAll = useCallback(() => {
     if (allSelected) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(tickets.map((t) => t.id)));
+      setSelectedIds(new Set(ticketItems.map((t) => t.id)));
     }
-  }, [allSelected, tickets]);
+  }, [allSelected, ticketItems]);
 
   const handleSelectTicket = useCallback((ticketId: string, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -53,7 +58,15 @@ export function TicketList({ tickets, agents, tags, isAdmin = false }: TicketLis
     setTimeout(() => setSuccessMessage(null), 4000);
   }, []);
 
-  if (tickets.length === 0) {
+  const handleOpenTicket = useCallback((ticketId: string) => {
+    setTicketItems((prev) =>
+      prev.map((ticket) =>
+        ticket.id === ticketId ? { ...ticket, is_unread: false } : ticket
+      )
+    );
+  }, []);
+
+  if (ticketItems.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-zinc-500 dark:text-zinc-400">
         <p>No tickets found</p>
@@ -95,13 +108,14 @@ export function TicketList({ tickets, agents, tags, isAdmin = false }: TicketLis
 
       {/* Ticket list */}
       <div>
-        {tickets.map((ticket) => (
+        {ticketItems.map((ticket) => (
           <TicketListItem
             key={ticket.id}
             ticket={ticket}
             matchField={ticket.match_field}
             selected={selectedIds.has(ticket.id)}
             onSelect={handleSelectTicket}
+            onOpen={handleOpenTicket}
             viewers={presenceMap.get(ticket.id)}
           />
         ))}
@@ -110,7 +124,7 @@ export function TicketList({ tickets, agents, tags, isAdmin = false }: TicketLis
       {/* Bulk action bar */}
       <BulkActionBar
         selectedIds={Array.from(selectedIds)}
-        selectedTickets={tickets
+        selectedTickets={ticketItems
           .filter((t) => selectedIds.has(t.id))
           .map((t) => ({ id: t.id, subject: t.subject, ticket_number: t.ticket_number }))}
         onClearSelection={handleClearSelection}

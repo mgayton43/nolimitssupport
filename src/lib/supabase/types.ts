@@ -17,6 +17,10 @@ export type TicketChannel = 'email' | 'facebook' | 'instagram' | 'manual';
 export type MessageSource = 'reply' | 'new_email' | 'merge';
 export type ResourceType = 'video' | 'article' | 'faq' | 'guide';
 export type CannedResponseStatus = 'active' | 'archived';
+export type DiscountType = 'percentage' | 'fixed_amount' | 'free_shipping';
+export type PromoSource = 'email_flow' | 'website' | 'ads' | 'influencer' | 'social_media' | 'other';
+export type ProductAvailability = 'us_only' | 'canada_only' | 'us_and_canada';
+export type StockStatus = 'in_stock' | 'out_of_stock' | 'discontinued' | 'pre_order';
 
 export interface Brand {
   id: string;
@@ -214,6 +218,41 @@ export interface TicketRead {
   last_read_at: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  description: string | null;
+  discount_type: DiscountType;
+  discount_value: number;
+  is_active: boolean;
+  is_stackable: boolean;
+  applies_to: string;
+  source: PromoSource | null;
+  source_details: string | null;
+  expiration_date: string | null;
+  brand_id: string | null;
+  created_at: string;
+  updated_at: string;
+  brand?: Brand | null;
+}
+
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  image_url: string | null;
+  whats_included: string | null;
+  retail_price: number | null;
+  discounted_price: number | null;
+  availability: ProductAvailability;
+  stock_status: StockStatus;
+  notes: string | null;
+  brand_id: string | null;
+  created_at: string;
+  updated_at: string;
+  brand?: Brand | null;
 }
 
 export interface Database {
