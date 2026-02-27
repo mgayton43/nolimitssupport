@@ -3,6 +3,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { LucideIcon } from 'lucide-react';
 import {
   Users,
   BarChart3,
@@ -17,6 +18,7 @@ import {
   Upload,
   Percent,
   Package,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/providers/auth-provider';
@@ -44,15 +46,37 @@ const navigation = [
   { name: 'Reports', href: '/reports', icon: BarChart3 },
 ];
 
-const settingsNavigation = [
+interface NavItem {
+  name: string;
+  href: string;
+  icon: LucideIcon;
+  adminOnly?: boolean;
+  children?: NavItem[];
+}
+
+const settingsNavigation: NavItem[] = [
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Canned Responses', href: '/settings/canned-responses', icon: MessageSquare },
-  { name: 'Resources', href: '/settings/resources', icon: Library },
-  { name: 'Promo Codes', href: '/settings/promo-codes', icon: Percent, adminOnly: true },
-  { name: 'Products', href: '/settings/products', icon: Package, adminOnly: true },
+  {
+    name: 'Resources',
+    href: '/settings/resources',
+    icon: Library,
+    children: [
+      { name: 'Products', href: '/settings/products', icon: Package, adminOnly: true },
+      { name: 'Promo Codes', href: '/settings/promo-codes', icon: Percent, adminOnly: true },
+    ],
+  },
   { name: 'Tags', href: '/settings/tags', icon: Tag, adminOnly: true },
-  { name: 'Tag Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
-  { name: 'Priority Rules', href: '/settings/priority-rules', icon: Gauge, adminOnly: true },
+  {
+    name: 'Rules',
+    href: '/settings/rules',
+    icon: Wand2,
+    adminOnly: true,
+    children: [
+      { name: 'Tag Rules', href: '/settings/rules', icon: Wand2, adminOnly: true },
+      { name: 'Priority Rules', href: '/settings/priority-rules', icon: Gauge, adminOnly: true },
+    ],
+  },
   { name: 'Users', href: '/settings/users', icon: UserCog, adminOnly: true },
   { name: 'Import from Gorgias', href: '/settings/import', icon: Upload, adminOnly: true },
 ];
@@ -107,21 +131,56 @@ export function Sidebar() {
         </div>
         {settingsNavigation.map((item) => {
           if (item.adminOnly && !isAdmin) return null;
+
+          const hasChildren = item.children && item.children.length > 0;
           const isActive = pathname === item.href;
+          const isChildActive = hasChildren && item.children?.some(
+            (child) => pathname === child.href
+          );
+
           return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
-                  : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+            <div key={item.name}>
+              <Link
+                href={item.href}
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  isActive || isChildActive
+                    ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                <span className="flex-1">{item.name}</span>
+                {hasChildren && (
+                  <ChevronRight className="h-4 w-4 text-zinc-400" />
+                )}
+              </Link>
+
+              {/* Nested children - always visible */}
+              {hasChildren && (
+                <div className="ml-4 mt-1 space-y-1 border-l border-zinc-200 dark:border-zinc-700">
+                  {item.children?.map((child) => {
+                    if (child.adminOnly && !isAdmin) return null;
+                    const isChildItemActive = pathname === child.href;
+                    return (
+                      <Link
+                        key={child.name}
+                        href={child.href}
+                        className={cn(
+                          'flex items-center gap-3 rounded-md py-1.5 pl-4 pr-3 text-sm font-medium transition-colors',
+                          isChildItemActive
+                            ? 'text-zinc-900 dark:text-zinc-100'
+                            : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+                        )}
+                      >
+                        <child.icon className="h-4 w-4" />
+                        {child.name}
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.name}
-            </Link>
+            </div>
           );
         })}
       </nav>
