@@ -271,6 +271,21 @@ export interface Product {
   brand?: Brand | null;
 }
 
+export interface UserInvitation {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: UserRole;
+  invited_by: string | null;
+  token: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+  inviter?: Pick<Profile, 'id' | 'full_name' | 'email'> | null;
+}
+
 export interface Database {
   public: {
     Tables: {

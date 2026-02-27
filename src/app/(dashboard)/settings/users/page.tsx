@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { Header } from '@/components/layout/header';
 import { UserList } from '@/components/settings/user-list';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getInvitations } from '@/lib/actions/invitations';
 
 async function UsersContent() {
   const supabase = await createClient();
@@ -14,6 +15,10 @@ async function UsersContent() {
 
   const { data: teams } = await supabase.from('teams').select('*').order('name');
 
+  // Fetch pending invitations
+  const invitationsResult = await getInvitations();
+  const invitations = 'invitations' in invitationsResult ? invitationsResult.invitations : [];
+
   if (error) {
     return (
       <div className="flex h-64 items-center justify-center text-zinc-500">
@@ -22,7 +27,7 @@ async function UsersContent() {
     );
   }
 
-  return <UserList users={users || []} teams={teams || []} />;
+  return <UserList users={users || []} teams={teams || []} invitations={invitations} />;
 }
 
 function UsersSkeleton() {

@@ -174,6 +174,24 @@ export const updateResourceSchema = createResourceSchema.extend({
 });
 
 // ============================================
+// User invitation schemas
+// ============================================
+
+export const inviteUserSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  full_name: z.string().max(200).optional(),
+  role: userRoleSchema,
+});
+
+export const resendInviteSchema = z.object({
+  invitationId: uuidSchema,
+});
+
+export const revokeInviteSchema = z.object({
+  invitationId: uuidSchema,
+});
+
+// ============================================
 // Type exports (inferred from schemas)
 // ============================================
 
@@ -190,3 +208,4 @@ export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>;
 export type UpdateUserTeamInput = z.infer<typeof updateUserTeamSchema>;
 export type CreateResourceInput = z.infer<typeof createResourceSchema>;
 export type UpdateResourceInput = z.infer<typeof updateResourceSchema>;
+export type InviteUserInput = z.infer<typeof inviteUserSchema>;
