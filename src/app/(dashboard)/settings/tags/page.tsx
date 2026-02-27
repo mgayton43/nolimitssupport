@@ -3,16 +3,17 @@ import { createClient } from '@/lib/supabase/server';
 import { Header } from '@/components/layout/header';
 import { TagList } from '@/components/settings/tag-list';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getTagTicketCounts } from '@/lib/actions/tags';
 
 async function TagsContent() {
   const supabase = await createClient();
 
-  const { data: tags, error } = await supabase
-    .from('tags')
-    .select('*')
-    .order('name');
+  const [tagsResult, countsResult] = await Promise.all([
+    supabase.from('tags').select('*').order('name'),
+    getTagTicketCounts(),
+  ]);
 
-  if (error) {
+  if (tagsResult.error) {
     return (
       <div className="flex h-64 items-center justify-center text-zinc-500">
         Error loading tags
@@ -20,7 +21,9 @@ async function TagsContent() {
     );
   }
 
-  return <TagList tags={tags || []} />;
+  const ticketCounts = 'counts' in countsResult ? countsResult.counts : {};
+
+  return <TagList tags={tagsResult.data || []} ticketCounts={ticketCounts} />;
 }
 
 function TagsSkeleton() {

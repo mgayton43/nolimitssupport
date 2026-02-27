@@ -97,3 +97,79 @@ export async function deleteTag(tagId: string) {
   revalidatePath('/settings/tags');
   return { success: true };
 }
+
+export interface TagTicket {
+  id: string;
+  ticket_number: number;
+  subject: string;
+  status: string;
+  created_at: string;
+  customer: {
+    full_name: string | null;
+    email: string;
+  } | null;
+}
+
+export async function getTicketsByTag(tagId: string, limit = 25): Promise<{ tickets: TagTicket[]; total: number } | { error: string }> {
+  const parsed = uuidSchema.safeParse(tagId);
+  if (!parsed.success) {
+    return { error: 'Invalid tag ID' };
+  }
+
+  const supabase = await createClient();
+
+  // Get total count
+  const { count } = await supabase
+    .from('ticket_tags')
+    .select('*', { count: 'exact', head: true })
+    .eq('tag_id', parsed.data);
+
+  // Get tickets with this tag
+  const { data: ticketTags, error } = await supabase
+    .from('ticket_tags')
+    .select(`
+      ticket:tickets(
+        id,
+        ticket_number,
+        subject,
+        status,
+        created_at,
+        customer:customers(full_name, email)
+      )
+    `)
+    .eq('tag_id', parsed.data)
+    .order('ticket_id', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Get tickets by tag error:', error);
+    return { error: 'Failed to fetch tickets' };
+  }
+
+  const tickets = ticketTags
+    ?.map((tt) => tt.ticket as unknown as TagTicket)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) || [];
+
+  return { tickets, total: count || 0 };
+}
+
+export async function getTagTicketCounts(): Promise<{ counts: Record<string, number> } | { error: string }> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('ticket_tags')
+    .select('tag_id');
+
+  if (error) {
+    console.error('Get tag ticket counts error:', error);
+    return { error: 'Failed to fetch counts' };
+  }
+
+  const counts: Record<string, number> = {};
+  data?.forEach((row) => {
+    counts[row.tag_id] = (counts[row.tag_id] || 0) + 1;
+  });
+
+  return { counts };
+}

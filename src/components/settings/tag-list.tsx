@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +13,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { createTag, updateTag, deleteTag } from '@/lib/actions/tags';
+import { createTag, updateTag, deleteTag, getTicketsByTag, type TagTicket } from '@/lib/actions/tags';
+import { cn } from '@/lib/utils';
 import type { Tag } from '@/lib/supabase/types';
 
 const colorOptions = [
@@ -31,16 +33,58 @@ const colorOptions = [
   '#6B7280', // gray
 ];
 
+const statusColors: Record<string, string> = {
+  open: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  closed: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  snoozed: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+};
+
 interface TagListProps {
   tags: Tag[];
+  ticketCounts: Record<string, number>;
 }
 
-export function TagList({ tags }: TagListProps) {
+export function TagList({ tags, ticketCounts }: TagListProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [selectedColor, setSelectedColor] = useState('#6B7280');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // Expandable state
+  const [expandedTagId, setExpandedTagId] = useState<string | null>(null);
+  const [tagTickets, setTagTickets] = useState<Record<string, { tickets: TagTicket[]; total: number; loading: boolean }>>({});
+
+  const handleToggleExpand = async (tagId: string) => {
+    if (expandedTagId === tagId) {
+      setExpandedTagId(null);
+      return;
+    }
+
+    setExpandedTagId(tagId);
+
+    // Fetch tickets if not already loaded
+    if (!tagTickets[tagId]) {
+      setTagTickets((prev) => ({
+        ...prev,
+        [tagId]: { tickets: [], total: 0, loading: true },
+      }));
+
+      const result = await getTicketsByTag(tagId);
+
+      if ('tickets' in result) {
+        setTagTickets((prev) => ({
+          ...prev,
+          [tagId]: { tickets: result.tickets, total: result.total, loading: false },
+        }));
+      } else {
+        setTagTickets((prev) => ({
+          ...prev,
+          [tagId]: { tickets: [], total: 0, loading: false },
+        }));
+      }
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -97,11 +141,26 @@ export function TagList({ tags }: TagListProps) {
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (tag: Tag) => {
+  const openEditDialog = (tag: Tag, e: React.MouseEvent) => {
+    e.stopPropagation();
     setEditingTag(tag);
     setSelectedColor(tag.color);
     setError(null);
     setIsDialogOpen(true);
+  };
+
+  const handleDeleteClick = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    handleDelete(id);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+    });
   };
 
   return (
@@ -118,49 +177,138 @@ export function TagList({ tags }: TagListProps) {
           No tags yet. Create your first one.
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {tags.map((tag) => (
-            <div
-              key={tag.id}
-              className="flex items-start justify-between rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
-            >
-              <div className="flex-1 min-w-0 space-y-1">
-                <Badge
-                  variant="secondary"
-                  style={{ backgroundColor: `${tag.color}20`, borderColor: tag.color }}
+        <div className="space-y-2">
+          {tags.map((tag) => {
+            const isExpanded = expandedTagId === tag.id;
+            const ticketCount = ticketCounts[tag.id] || 0;
+            const ticketData = tagTickets[tag.id];
+
+            return (
+              <div
+                key={tag.id}
+                className="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden"
+              >
+                {/* Tag Row */}
+                <div
+                  className={cn(
+                    'flex items-center justify-between p-4 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors',
+                    isExpanded && 'bg-zinc-50 dark:bg-zinc-800/50'
+                  )}
+                  onClick={() => handleToggleExpand(tag.id)}
                 >
-                  <div
-                    className="mr-1.5 h-2 w-2 rounded-full"
-                    style={{ backgroundColor: tag.color }}
-                  />
-                  {tag.name}
-                </Badge>
-                {tag.description && (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2">
-                    {tag.description}
-                  </p>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {ticketCount > 0 ? (
+                      isExpanded ? (
+                        <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-zinc-400 shrink-0" />
+                      )
+                    ) : (
+                      <div className="w-4" />
+                    )}
+
+                    <Badge
+                      variant="secondary"
+                      style={{ backgroundColor: `${tag.color}20`, borderColor: tag.color }}
+                    >
+                      <div
+                        className="mr-1.5 h-2 w-2 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      {tag.name}
+                    </Badge>
+
+                    <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                      {ticketCount} {ticketCount === 1 ? 'ticket' : 'tickets'}
+                    </span>
+
+                    {tag.description && (
+                      <span className="text-sm text-zinc-400 dark:text-zinc-500 truncate hidden sm:block">
+                        — {tag.description}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex gap-1 shrink-0 ml-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={(e) => openEditDialog(tag, e)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-red-500 hover:text-red-600"
+                      onClick={(e) => handleDeleteClick(tag.id, e)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Expanded Ticket List */}
+                {isExpanded && (
+                  <div className="border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+                    {ticketData?.loading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+                      </div>
+                    ) : ticketData?.tickets.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-zinc-500">
+                        No tickets with this tag
+                      </div>
+                    ) : (
+                      <>
+                        <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                          {ticketData?.tickets.map((ticket) => (
+                            <Link
+                              key={ticket.id}
+                              href={`/tickets/${ticket.id}`}
+                              className="flex items-center gap-4 px-4 py-3 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors group"
+                            >
+                              <span className="text-sm font-mono text-zinc-500 dark:text-zinc-400 shrink-0">
+                                #{ticket.ticket_number}
+                              </span>
+                              <span className="text-sm font-medium truncate flex-1">
+                                {ticket.subject}
+                              </span>
+                              <span className="text-sm text-zinc-500 dark:text-zinc-400 truncate max-w-32 hidden md:block">
+                                {ticket.customer?.full_name || ticket.customer?.email || 'Unknown'}
+                              </span>
+                              <span className={cn(
+                                'text-xs px-2 py-0.5 rounded-full capitalize shrink-0',
+                                statusColors[ticket.status] || 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200'
+                              )}>
+                                {ticket.status}
+                              </span>
+                              <span className="text-xs text-zinc-400 shrink-0 hidden sm:block">
+                                {formatDate(ticket.created_at)}
+                              </span>
+                              <ExternalLink className="h-4 w-4 text-zinc-300 group-hover:text-zinc-500 shrink-0" />
+                            </Link>
+                          ))}
+                        </div>
+
+                        {ticketData && ticketData.total > ticketData.tickets.length && (
+                          <div className="px-4 py-3 text-center border-t border-zinc-200 dark:border-zinc-800">
+                            <Link
+                              href={`/tickets?tag=${tag.id}`}
+                              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                            >
+                              View all {ticketData.total} tickets →
+                            </Link>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
-              <div className="flex gap-1 shrink-0 ml-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => openEditDialog(tag)}
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-red-500 hover:text-red-600"
-                  onClick={() => handleDelete(tag.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
