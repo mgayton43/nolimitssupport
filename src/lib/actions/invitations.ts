@@ -34,96 +34,160 @@ export async function getInvitations(): Promise<{ invitations: UserInvitation[] 
 }
 
 export async function inviteUser(input: InviteUserInput): Promise<{ invitation: UserInvitation } | { error: string }> {
-  const parsed = inviteUserSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message || 'Invalid input' };
-  }
+  try {
+    console.log('[inviteUser] Starting invitation process for:', input.email);
 
-  const supabase = await createClient();
-  const serviceClient = await createServiceClient();
+    const parsed = inviteUserSchema.safeParse(input);
+    if (!parsed.success) {
+      console.log('[inviteUser] Validation failed:', parsed.error.issues);
+      return { error: parsed.error.issues[0]?.message || 'Invalid input' };
+    }
 
-  // Check if current user is admin
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return { error: 'Not authenticated' };
-  }
+    console.log('[inviteUser] Creating Supabase clients...');
+    const supabase = await createClient();
 
-  const { data: currentProfile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+    let serviceClient;
+    try {
+      serviceClient = await createServiceClient();
+      console.log('[inviteUser] Service client created successfully');
+    } catch (serviceError) {
+      console.error('[inviteUser] Failed to create service client:', serviceError);
+      return { error: 'Server configuration error - service role key may be missing' };
+    }
 
-  if (currentProfile?.role !== 'admin') {
-    return { error: 'Only admins can invite users' };
-  }
+    // Check if current user is admin
+    console.log('[inviteUser] Checking current user...');
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      console.error('[inviteUser] Auth error:', JSON.stringify(userError, null, 2));
+      return { error: 'Authentication error: ' + userError.message };
+    }
+    if (!user) {
+      console.log('[inviteUser] No user found');
+      return { error: 'Not authenticated' };
+    }
+    console.log('[inviteUser] Current user:', user.id);
 
-  // Check if email already exists as a user
-  const { data: existingProfile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('email', parsed.data.email.toLowerCase())
-    .single();
+    const { data: currentProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
 
-  if (existingProfile) {
-    return { error: 'A user with this email already exists' };
-  }
+    if (profileError) {
+      console.error('[inviteUser] Profile fetch error:', JSON.stringify(profileError, null, 2));
+      return { error: 'Failed to fetch your profile' };
+    }
 
-  // Check if there's already a pending invitation for this email
-  const { data: existingInvite } = await supabase
-    .from('user_invitations')
-    .select('id')
-    .eq('email', parsed.data.email.toLowerCase())
-    .is('accepted_at', null)
-    .is('revoked_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .single();
+    if (currentProfile?.role !== 'admin') {
+      console.log('[inviteUser] User is not admin:', currentProfile?.role);
+      return { error: 'Only admins can invite users' };
+    }
 
-  if (existingInvite) {
-    return { error: 'A pending invitation already exists for this email' };
-  }
+    // Check if email already exists as a user
+    console.log('[inviteUser] Checking if email already exists...');
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', parsed.data.email.toLowerCase())
+      .single();
 
-  // Use Supabase Auth admin API to invite user
-  // Note: This creates a user in auth.users and sends an invite email
-  const { data: authData, error: authError } = await serviceClient.auth.admin.inviteUserByEmail(
-    parsed.data.email.toLowerCase(),
-    {
-      data: {
-        full_name: parsed.data.full_name || '',
+    if (existingProfile) {
+      console.log('[inviteUser] Email already exists as user');
+      return { error: 'A user with this email already exists' };
+    }
+
+    // Check if there's already a pending invitation for this email
+    console.log('[inviteUser] Checking for existing invitation...');
+    try {
+      const { data: existingInvite } = await supabase
+        .from('user_invitations')
+        .select('id')
+        .eq('email', parsed.data.email.toLowerCase())
+        .is('accepted_at', null)
+        .is('revoked_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .single();
+
+      if (existingInvite) {
+        console.log('[inviteUser] Pending invitation already exists');
+        return { error: 'A pending invitation already exists for this email' };
+      }
+    } catch {
+      // Table might not exist, continue anyway
+      console.log('[inviteUser] user_invitations table may not exist, continuing...');
+    }
+
+    // Use Supabase Auth admin API to invite user
+    console.log('[inviteUser] Calling inviteUserByEmail...');
+    const { data: authData, error: authError } = await serviceClient.auth.admin.inviteUserByEmail(
+      parsed.data.email.toLowerCase(),
+      {
+        data: {
+          full_name: parsed.data.full_name || '',
+          role: parsed.data.role,
+        },
+      }
+    );
+
+    if (authError) {
+      console.error('[inviteUser] Auth invite error - Full details:');
+      console.error('  Message:', authError.message);
+      console.error('  Status:', authError.status);
+      console.error('  Name:', authError.name);
+      console.error('  Full error:', JSON.stringify(authError, null, 2));
+
+      // Provide more specific error messages
+      if (authError.message?.includes('already registered')) {
+        return { error: 'This email is already registered in auth system' };
+      }
+      if (authError.message?.includes('Database error')) {
+        return { error: `Database error: ${authError.message}. Check if handle_new_user trigger is working.` };
+      }
+      return { error: `Auth error: ${authError.message}` };
+    }
+
+    console.log('[inviteUser] Auth invite successful, user ID:', authData.user?.id);
+
+    // Create invitation record using service client to bypass RLS
+    console.log('[inviteUser] Creating invitation record...');
+    const { data: invitation, error: inviteError } = await serviceClient
+      .from('user_invitations')
+      .insert({
+        email: parsed.data.email.toLowerCase(),
+        full_name: parsed.data.full_name || null,
         role: parsed.data.role,
-      },
+        invited_by: user.id,
+        token: authData.user?.id || null,
+      })
+      .select('*, inviter:profiles!user_invitations_invited_by_fkey(id, full_name, email)')
+      .single();
+
+    if (inviteError) {
+      console.error('[inviteUser] Invitation record error - Full details:');
+      console.error('  Message:', inviteError.message);
+      console.error('  Code:', inviteError.code);
+      console.error('  Details:', inviteError.details);
+      console.error('  Hint:', inviteError.hint);
+      console.error('  Full error:', JSON.stringify(inviteError, null, 2));
+
+      // The auth user was created but we failed to record it - still a partial success
+      return { error: `Invitation sent but failed to record: ${inviteError.message}` };
     }
-  );
 
-  if (authError) {
-    console.error('Auth invite error:', JSON.stringify(authError, null, 2));
-    // Provide more specific error messages
-    if (authError.message?.includes('already registered')) {
-      return { error: 'This email is already registered' };
-    }
-    return { error: authError.message || 'Failed to send invitation' };
+    console.log('[inviteUser] Invitation created successfully:', invitation.id);
+    revalidatePath('/settings/users');
+    return { invitation: invitation as UserInvitation };
+
+  } catch (error) {
+    console.error('[inviteUser] Unexpected error:');
+    console.error('  Type:', typeof error);
+    console.error('  Message:', error instanceof Error ? error.message : String(error));
+    console.error('  Stack:', error instanceof Error ? error.stack : 'No stack');
+    console.error('  Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error as object), 2));
+
+    return { error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` };
   }
-
-  // Create invitation record using service client to bypass RLS
-  const { data: invitation, error: inviteError } = await serviceClient
-    .from('user_invitations')
-    .insert({
-      email: parsed.data.email.toLowerCase(),
-      full_name: parsed.data.full_name || null,
-      role: parsed.data.role,
-      invited_by: user.id,
-      token: authData.user?.id || null,
-    })
-    .select('*, inviter:profiles!user_invitations_invited_by_fkey(id, full_name, email)')
-    .single();
-
-  if (inviteError) {
-    console.error('Create invitation record error:', JSON.stringify(inviteError, null, 2));
-    return { error: 'Failed to create invitation record' };
-  }
-
-  revalidatePath('/settings/users');
-  return { invitation: invitation as UserInvitation };
 }
 
 export async function resendInvite(invitationId: string): Promise<{ success: boolean } | { error: string }> {
