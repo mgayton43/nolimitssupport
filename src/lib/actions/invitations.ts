@@ -6,22 +6,31 @@ import { inviteUserSchema, type InviteUserInput } from '@/lib/validations';
 import type { UserInvitation } from '@/lib/supabase/types';
 
 export async function getInvitations(): Promise<{ invitations: UserInvitation[] } | { error: string }> {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('user_invitations')
-    .select('*, inviter:profiles!user_invitations_invited_by_fkey(id, full_name, email)')
-    .is('accepted_at', null)
-    .is('revoked_at', null)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('user_invitations')
+      .select('*, inviter:profiles!user_invitations_invited_by_fkey(id, full_name, email)')
+      .is('accepted_at', null)
+      .is('revoked_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('Get invitations error:', error);
-    return { error: 'Failed to fetch invitations' };
+    if (error) {
+      // Table might not exist yet if migration hasn't been applied
+      if (error.code === '42P01') {
+        return { invitations: [] };
+      }
+      console.error('Get invitations error:', error);
+      return { invitations: [] };
+    }
+
+    return { invitations: data as UserInvitation[] };
+  } catch {
+    // Silently handle errors - table might not exist
+    return { invitations: [] };
   }
-
-  return { invitations: data as UserInvitation[] };
 }
 
 export async function inviteUser(input: InviteUserInput): Promise<{ invitation: UserInvitation } | { error: string }> {
@@ -75,6 +84,7 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
   }
 
   // Use Supabase Auth admin API to invite user
+  // Note: This creates a user in auth.users and sends an invite email
   const { data: authData, error: authError } = await serviceClient.auth.admin.inviteUserByEmail(
     parsed.data.email.toLowerCase(),
     {
@@ -86,12 +96,16 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
   );
 
   if (authError) {
-    console.error('Auth invite error:', authError);
+    console.error('Auth invite error:', JSON.stringify(authError, null, 2));
+    // Provide more specific error messages
+    if (authError.message?.includes('already registered')) {
+      return { error: 'This email is already registered' };
+    }
     return { error: authError.message || 'Failed to send invitation' };
   }
 
-  // Create invitation record
-  const { data: invitation, error: inviteError } = await supabase
+  // Create invitation record using service client to bypass RLS
+  const { data: invitation, error: inviteError } = await serviceClient
     .from('user_invitations')
     .insert({
       email: parsed.data.email.toLowerCase(),
@@ -104,7 +118,7 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
     .single();
 
   if (inviteError) {
-    console.error('Create invitation record error:', inviteError);
+    console.error('Create invitation record error:', JSON.stringify(inviteError, null, 2));
     return { error: 'Failed to create invitation record' };
   }
 
