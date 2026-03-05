@@ -119,11 +119,8 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
     }
 
     // Use Supabase Auth admin API to invite user
-    // The redirectTo URL is where users go after clicking the invite link
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-      || 'http://localhost:3000';
-    const redirectTo = `${baseUrl}/auth/set-password`;
+    // The redirectTo URL MUST include the full path
+    const redirectTo = 'https://nolimitssupport-tsyd.vercel.app/auth/set-password';
 
     console.log('[inviteUser] Calling inviteUserByEmail with redirectTo:', redirectTo);
     const { data: authData, error: authError } = await serviceClient.auth.admin.inviteUserByEmail(
@@ -233,6 +230,7 @@ export async function resendInvite(invitationId: string): Promise<{ success: boo
   }
 
   // Resend the invitation via Supabase Auth
+  const redirectTo = 'https://nolimitssupport-tsyd.vercel.app/auth/set-password';
   const { error: authError } = await serviceClient.auth.admin.inviteUserByEmail(
     invitation.email,
     {
@@ -240,6 +238,7 @@ export async function resendInvite(invitationId: string): Promise<{ success: boo
         full_name: invitation.full_name || '',
         role: invitation.role,
       },
+      redirectTo,
     }
   );
 
