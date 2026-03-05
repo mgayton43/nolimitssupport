@@ -5,9 +5,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // CRITICAL: Skip ALL API routes immediately - no auth check needed
-  // Check for both /api and /api/ patterns
   if (pathname.startsWith('/api')) {
-    console.log('[Middleware] Allowing API route through:', pathname);
     return NextResponse.next();
   }
 
@@ -56,7 +54,6 @@ export async function middleware(request: NextRequest) {
 
   // Redirect unauthenticated users to login
   if (!user && !isAuthPage) {
-    console.log('[Middleware] Redirecting to login:', pathname);
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
