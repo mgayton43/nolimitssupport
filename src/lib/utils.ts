@@ -17,25 +17,30 @@ export function formatDate(date: string | Date) {
 export function formatRelativeTime(date: string | Date) {
   const now = new Date();
   const then = new Date(date);
-  const diffInSeconds = Math.floor((now.getTime() - then.getTime()) / 1000);
+  const diffInMs = now.getTime() - then.getTime();
+  const isFuture = diffInMs < 0;
+  const diffInSeconds = Math.floor(Math.abs(diffInMs) / 1000);
+
+  const suffix = isFuture ? '' : ' ago';
+  const prefix = isFuture ? 'in ' : '';
 
   if (diffInSeconds < 60) {
-    return 'just now';
+    return isFuture ? 'in less than a minute' : 'just now';
   }
 
   const diffInMinutes = Math.floor(diffInSeconds / 60);
   if (diffInMinutes < 60) {
-    return `${diffInMinutes}m ago`;
+    return `${prefix}${diffInMinutes}m${suffix}`;
   }
 
   const diffInHours = Math.floor(diffInMinutes / 60);
   if (diffInHours < 24) {
-    return `${diffInHours}h ago`;
+    return `${prefix}${diffInHours}h${suffix}`;
   }
 
   const diffInDays = Math.floor(diffInHours / 24);
   if (diffInDays < 7) {
-    return `${diffInDays}d ago`;
+    return `${prefix}${diffInDays}d${suffix}`;
   }
 
   return formatDate(date);
