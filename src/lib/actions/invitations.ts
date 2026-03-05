@@ -119,7 +119,13 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
     }
 
     // Use Supabase Auth admin API to invite user
-    console.log('[inviteUser] Calling inviteUserByEmail...');
+    // The redirectTo URL is where users go after clicking the invite link
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : 'http://localhost:3000';
+    const redirectTo = `${baseUrl}/auth/callback?next=/auth/set-password`;
+
+    console.log('[inviteUser] Calling inviteUserByEmail with redirectTo:', redirectTo);
     const { data: authData, error: authError } = await serviceClient.auth.admin.inviteUserByEmail(
       parsed.data.email.toLowerCase(),
       {
@@ -127,6 +133,7 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
           full_name: parsed.data.full_name || '',
           role: parsed.data.role,
         },
+        redirectTo,
       }
     );
 

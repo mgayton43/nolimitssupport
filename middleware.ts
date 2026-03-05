@@ -49,18 +49,24 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAuthPage = pathname.startsWith('/login');
+  const isLoginPage = pathname.startsWith('/login');
+  const isAuthRoute = pathname.startsWith('/auth'); // /auth/callback, /auth/set-password
   const isPublicPage = pathname === '/';
 
+  // Allow auth routes (callback, set-password) - they handle their own auth
+  if (isAuthRoute) {
+    return supabaseResponse;
+  }
+
   // Redirect unauthenticated users to login
-  if (!user && !isAuthPage) {
+  if (!user && !isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
   // Redirect authenticated users away from login page
-  if (user && isAuthPage) {
+  if (user && isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/tickets';
     return NextResponse.redirect(url);
@@ -79,11 +85,11 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Only match paths that need auth protection.
-     * Explicitly EXCLUDE:
+     * Match all paths except:
      * - /api/* (all API routes)
      * - /_next/* (Next.js internals)
      * - Static files
+     * Note: /auth/* routes are handled in middleware but still need cookie handling
      */
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
