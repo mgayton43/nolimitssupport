@@ -33,6 +33,17 @@ interface AgentInboxCount {
   count: number;
 }
 
+function formatCount(count: number): string {
+  if (count >= 10000) {
+    return `${Math.floor(count / 1000)}k`;
+  }
+  if (count >= 1000) {
+    const k = count / 1000;
+    return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+  }
+  return count.toString();
+}
+
 function CountBadge({
   count,
   variant = 'default',
@@ -54,12 +65,12 @@ function CountBadge({
   return (
     <span
       className={cn(
-        'ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+        'ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums',
         variantStyles[variant]
       )}
     >
       {icon}
-      {count > 99 ? '99+' : count}
+      {formatCount(count)}
     </span>
   );
 }
