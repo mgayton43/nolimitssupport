@@ -154,7 +154,9 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
     console.log('[inviteUser] Auth invite successful, user ID:', authData.user?.id);
 
     // Create invitation record using service client to bypass RLS
-    console.log('[inviteUser] Creating invitation record...');
+    // Explicitly set expires_at to 7 days from now (don't rely on DB default)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    console.log('[inviteUser] Creating invitation record with expires_at:', expiresAt);
     const { data: invitation, error: inviteError } = await serviceClient
       .from('user_invitations')
       .insert({
@@ -163,6 +165,7 @@ export async function inviteUser(input: InviteUserInput): Promise<{ invitation: 
         role: parsed.data.role,
         invited_by: user.id,
         token: authData.user?.id || null,
+        expires_at: expiresAt,
       })
       .select('*, inviter:profiles!user_invitations_invited_by_fkey(id, full_name, email)')
       .single();
