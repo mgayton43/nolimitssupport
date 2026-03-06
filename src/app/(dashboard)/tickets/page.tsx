@@ -68,6 +68,8 @@ function getViewTitle(view: string | undefined, agentName?: string): string {
       return 'My Snoozed Tickets';
     case 'my-closed':
       return 'My Closed Tickets';
+    case 'auto-replies':
+      return 'Auto-Replies';
     case 'agent':
       return agentName ? `${agentName}'s Inbox` : 'Agent Inbox';
     default:
@@ -167,12 +169,12 @@ async function TicketListContent({
 
     if (searchParams.view === 'unassigned') {
       filteredTickets = filteredTickets.filter(
-        (t) => !t.assigned_agent_id && ['open', 'pending'].includes(t.status)
+        (t) => !t.assigned_agent_id && ['open', 'pending'].includes(t.status) && !t.is_auto_reply
       );
     } else if (searchParams.view === 'my-inbox') {
       filteredTickets = filteredTickets.filter(
         (t) =>
-          t.assigned_agent_id === currentUserId && ['open', 'pending'].includes(t.status)
+          t.assigned_agent_id === currentUserId && ['open', 'pending'].includes(t.status) && !t.is_auto_reply
       );
     } else if (searchParams.view === 'my-snoozed') {
       filteredTickets = filteredTickets.filter(
@@ -185,8 +187,15 @@ async function TicketListContent({
       filteredTickets = filteredTickets.filter(
         (t) => t.assigned_agent_id === currentUserId && t.status === 'closed'
       );
+    } else if (searchParams.view === 'auto-replies') {
+      filteredTickets = filteredTickets.filter(
+        (t) => t.is_auto_reply && ['open', 'pending'].includes(t.status)
+      );
     } else if (searchParams.view === 'agent' && searchParams.agent) {
-      filteredTickets = filteredTickets.filter((t) => t.assigned_agent_id === searchParams.agent);
+      filteredTickets = filteredTickets.filter((t) => t.assigned_agent_id === searchParams.agent && !t.is_auto_reply);
+    } else {
+      // Default "all" view - exclude auto-replies
+      filteredTickets = filteredTickets.filter((t) => !t.is_auto_reply);
     }
 
     // Apply brand filter to search results
@@ -244,10 +253,19 @@ async function TicketListContent({
     query = query
       .is('assigned_agent_id', null)
       .in('status', ['open', 'pending'])
-      .is('snoozed_until', null);
+      .is('snoozed_until', null)
+      .eq('is_auto_reply', false);
   } else if (searchParams.view === 'my-inbox') {
-    // Show open/pending tickets assigned to me (excluding snoozed if column exists)
-    query = query.eq('assigned_agent_id', currentUserId).in('status', ['open', 'pending']);
+    // Show open/pending tickets assigned to me (excluding snoozed and auto-replies)
+    query = query
+      .eq('assigned_agent_id', currentUserId)
+      .in('status', ['open', 'pending'])
+      .eq('is_auto_reply', false);
+  } else if (searchParams.view === 'auto-replies') {
+    // Show auto-reply tickets
+    query = query
+      .eq('is_auto_reply', true)
+      .in('status', ['open', 'pending']);
   } else if (searchParams.view === 'my-snoozed') {
     // Show snoozed tickets assigned to me
     // This view requires the snooze migration to be run
@@ -308,7 +326,10 @@ async function TicketListContent({
   } else if (searchParams.view === 'my-closed') {
     query = query.eq('assigned_agent_id', currentUserId).eq('status', 'closed');
   } else if (searchParams.view === 'agent' && searchParams.agent) {
-    query = query.eq('assigned_agent_id', searchParams.agent);
+    query = query.eq('assigned_agent_id', searchParams.agent).eq('is_auto_reply', false);
+  } else {
+    // Default "all" view - exclude auto-replies
+    query = query.eq('is_auto_reply', false);
   }
 
   // Apply additional filters

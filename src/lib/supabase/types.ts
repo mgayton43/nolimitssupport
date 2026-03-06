@@ -130,6 +130,7 @@ export interface Ticket {
   imported_at: string | null;
   reference_id: string | null; // Email Message-ID for threading
   last_message_at: string | null; // Timestamp of most recent message
+  is_auto_reply: boolean; // Auto-reply/OOO emails filtered from main queue
   created_at: string;
   updated_at: string;
   customer?: Customer | null;

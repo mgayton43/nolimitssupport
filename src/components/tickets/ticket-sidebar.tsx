@@ -17,10 +17,11 @@ import {
   updateTicketPriority,
   assignTicket,
   assignTicketToTeam,
+  toggleAutoReply,
 } from '@/lib/actions/tickets';
 import { fetchShopifyCustomerInfo } from '@/lib/actions/shopify';
 import { getInitials, formatDate } from '@/lib/utils';
-import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon, Copy, Check, MapPin } from 'lucide-react';
+import { User, Users, Clock, Mail, Phone, ExternalLink, Ticket as TicketIcon, Copy, Check, MapPin, BotMessageSquare, X } from 'lucide-react';
 
 // Small copy button component
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
@@ -156,8 +157,39 @@ export function TicketSidebar({
     });
   };
 
+  const handleToggleAutoReply = (isAutoReply: boolean) => {
+    startTransition(async () => {
+      await toggleAutoReply(ticket.id, isAutoReply);
+    });
+  };
+
   return (
     <div className="p-4 space-y-6">
+      {/* Auto-Reply Banner */}
+      {ticket.is_auto_reply && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 dark:bg-amber-900/20 dark:border-amber-800">
+          <div className="flex items-start gap-2">
+            <BotMessageSquare className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Auto-Reply Detected
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                This ticket was flagged as an automatic reply (out of office, etc.)
+              </p>
+              <button
+                onClick={() => handleToggleAutoReply(false)}
+                disabled={isPending}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200 disabled:opacity-50"
+              >
+                <X className="h-3 w-3" />
+                Not an auto-reply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Customer */}
       {ticket.customer && (
         <div className="space-y-3">

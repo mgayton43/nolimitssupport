@@ -114,6 +114,7 @@ type SearchTicketRow = {
   first_response_at: string | null;
   resolved_at: string | null;
   last_message_at: string | null;
+  is_auto_reply: boolean;
   created_at: string;
   updated_at: string;
   match_field: string;
@@ -513,6 +514,7 @@ export async function searchTickets(
     imported_at: null,
     reference_id: null,
     last_message_at: row.last_message_at,
+    is_auto_reply: row.is_auto_reply ?? false,
     created_at: row.created_at,
     updated_at: row.updated_at,
     match_field: row.match_field as MatchField,
@@ -1065,6 +1067,29 @@ export async function getTicketMergeInfo(
   const mergedFrom = (mergedTickets || []).map((t) => t.ticket_number);
 
   return { mergedFrom, mergedInto };
+}
+
+// Toggle Auto-Reply Status
+
+export async function toggleAutoReply(
+  ticketId: string,
+  isAutoReply: boolean
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from('tickets')
+    .update({ is_auto_reply: isAutoReply })
+    .eq('id', ticketId);
+
+  if (error) {
+    console.error('Toggle auto-reply error:', error);
+    return { error: 'Failed to update ticket' };
+  }
+
+  revalidatePath(`/tickets/${ticketId}`);
+  revalidatePath('/tickets');
+  return { success: true };
 }
 
 // Get Ticket Detail for Split Pane Preview

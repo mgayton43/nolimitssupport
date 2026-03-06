@@ -37,8 +37,14 @@ function parseEmailHeaders(headersString: string): {
   messageId: string | null;
   references: string | null;
   inReplyTo: string | null;
+  isAutoReply: boolean;
 } {
-  const result = { messageId: null as string | null, references: null as string | null, inReplyTo: null as string | null };
+  const result = {
+    messageId: null as string | null,
+    references: null as string | null,
+    inReplyTo: null as string | null,
+    isAutoReply: false,
+  };
 
   if (!headersString) return result;
 
@@ -52,9 +58,50 @@ function parseEmailHeaders(headersString: string): {
     } else if (lowerLine.startsWith('in-reply-to:')) {
       result.inReplyTo = line.substring('in-reply-to:'.length).trim();
     }
+    // Check for auto-reply headers
+    else if (lowerLine.startsWith('auto-submitted:') && !lowerLine.includes('no')) {
+      result.isAutoReply = true;
+    } else if (lowerLine.startsWith('x-auto-response-suppress:')) {
+      result.isAutoReply = true;
+    } else if (lowerLine.startsWith('x-autoreply:')) {
+      result.isAutoReply = true;
+    } else if (lowerLine.startsWith('x-autorespond:')) {
+      result.isAutoReply = true;
+    } else if (lowerLine.includes('precedence:') && (lowerLine.includes('auto_reply') || lowerLine.includes('bulk') || lowerLine.includes('junk'))) {
+      result.isAutoReply = true;
+    }
   }
 
   return result;
+}
+
+/**
+ * Check if an email subject indicates an auto-reply
+ */
+function isAutoReplySubject(subject: string): boolean {
+  const lowerSubject = subject.toLowerCase();
+  const autoReplyPatterns = [
+    'automatic reply',
+    'auto-reply',
+    'auto reply',
+    'autoreply',
+    'out of office',
+    'out-of-office',
+    'ooo:',
+    'away from office',
+    'on vacation',
+    'automatische antwort',
+    'réponse automatique',
+    'risposta automatica',
+    'respuesta automática',
+    'delivery status notification',
+    'delivery failure',
+    'undeliverable:',
+    'mail delivery failed',
+    'returned mail',
+  ];
+
+  return autoReplyPatterns.some(pattern => lowerSubject.includes(pattern));
 }
 
 /**
@@ -417,6 +464,12 @@ export async function POST(request: NextRequest) {
         displayContent = rawEmailContent || '(No content)';
       }
 
+      // Check if this is an auto-reply email
+      const isAutoReply = headers.isAutoReply || isAutoReplySubject(data.subject);
+      if (isAutoReply) {
+        console.log('Detected auto-reply email, marking ticket accordingly');
+      }
+
       // Create ticket
       const { data: ticket, error: ticketError } = await supabase
         .from('tickets')
@@ -428,6 +481,7 @@ export async function POST(request: NextRequest) {
           customer_id: customerId,
           brand_id: brandId,
           reference_id: headers.messageId,
+          is_auto_reply: isAutoReply,
         })
         .select('id, ticket_number')
         .single();

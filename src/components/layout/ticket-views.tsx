@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Clock,
   CheckCircle,
+  BotMessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -23,6 +24,7 @@ interface TicketViewCounts {
   myInbox: number;
   mySnoozed: number;
   myClosed: number;
+  autoReplies: number;
   all: number;
 }
 
@@ -71,6 +73,7 @@ export function TicketViews() {
     myInbox: 0,
     mySnoozed: 0,
     myClosed: 0,
+    autoReplies: 0,
     all: 0,
   });
   const [agentCounts, setAgentCounts] = useState<AgentInboxCount[]>([]);
@@ -90,21 +93,23 @@ export function TicketViews() {
       // First, check and unsnooze any expired tickets
       await unsnoozeExpiredTickets();
 
-      // Get unassigned count (exclude snoozed)
+      // Get unassigned count (exclude snoozed and auto-replies)
       const { count: unassignedCount } = await supabase
         .from('tickets')
         .select('id', { count: 'exact', head: true })
         .is('assigned_agent_id', null)
         .in('status', ['open', 'pending'])
-        .is('snoozed_until', null);
+        .is('snoozed_until', null)
+        .eq('is_auto_reply', false);
 
-      // Get my inbox count (open/pending, not snoozed)
+      // Get my inbox count (open/pending, not snoozed, exclude auto-replies)
       const { count: myInboxCount } = await supabase
         .from('tickets')
         .select('id', { count: 'exact', head: true })
         .eq('assigned_agent_id', profile?.id || '')
         .in('status', ['open', 'pending'])
-        .is('snoozed_until', null);
+        .is('snoozed_until', null)
+        .eq('is_auto_reply', false);
 
       // Get my snoozed count
       const { count: mySnoozedCount } = await supabase
@@ -121,17 +126,26 @@ export function TicketViews() {
         .eq('assigned_agent_id', profile?.id || '')
         .eq('status', 'closed');
 
-      // Get all tickets count (open/pending)
+      // Get auto-replies count (open/pending auto-replies)
+      const { count: autoRepliesCount } = await supabase
+        .from('tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_auto_reply', true)
+        .in('status', ['open', 'pending']);
+
+      // Get all tickets count (open/pending, exclude auto-replies)
       const { count: allCount } = await supabase
         .from('tickets')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['open', 'pending']);
+        .in('status', ['open', 'pending'])
+        .eq('is_auto_reply', false);
 
       setCounts({
         unassigned: unassignedCount || 0,
         myInbox: myInboxCount || 0,
         mySnoozed: mySnoozedCount || 0,
         myClosed: myClosedCount || 0,
+        autoReplies: autoRepliesCount || 0,
         all: allCount || 0,
       });
 
@@ -223,6 +237,14 @@ export function TicketViews() {
       count: counts.myClosed,
       view: 'my-closed',
       badgeVariant: 'green' as const,
+    },
+    {
+      name: 'Auto-Replies',
+      href: '/tickets?view=auto-replies',
+      icon: BotMessageSquare,
+      count: counts.autoReplies,
+      view: 'auto-replies',
+      badgeVariant: 'muted' as const,
     },
     {
       name: 'All Tickets',
